@@ -2,8 +2,15 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import dotenv from "dotenv";
+import connectDB from "./config/db.js";
+import authRoutes from "./routes/authRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
 
+dotenv.config();
 const app = express();
+
+connectDB();
 
 const PORT = process.env.PORT || 5000;
 
@@ -25,6 +32,9 @@ const apiLimiter = rateLimit({
 });
 
 app.use("/api", apiLimiter);
+
+app.use("/api/v1/auth", authRoutes);
+app.use("/api/v1/users", userRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
