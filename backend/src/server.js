@@ -10,8 +10,6 @@ import userRoutes from "./routes/userRoutes.js";
 dotenv.config();
 const app = express();
 
-connectDB();
-
 const PORT = process.env.PORT || 5000;
 
 // Security middleware
@@ -45,7 +43,20 @@ app.get("/api/v1/health", (req, res) => {
   });
 });
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`SpendWise API running on http://localhost:${PORT}`);
-});
+ // Start server only after MongoDB connects
+const startServer = async () => {
+  try {
+    await connectDB();
+
+    app.listen(PORT, () => {
+      console.log(
+        `SpendWise API running on http://localhost:${PORT}`
+      );
+    });
+  } catch (error) {
+    console.error("Server startup failed:", error.message);
+    process.exit(1);
+  }
+};
+
+startServer();
