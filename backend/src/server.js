@@ -10,6 +10,7 @@ import expenseRoutes from "./routes/expenseRoutes.js";
 import incomeRoutes from "./routes/incomeRoutes.js";
 import categoryRoutes from "./routes/categoryRoutes.js";
 import budgetRoutes from "./routes/budgetRoutes.js";
+import dashboardRoutes from "./routes/dashboardRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -41,6 +42,7 @@ app.use("/api/v1/expenses", expenseRoutes);
 app.use("/api/v1/income", incomeRoutes);
 app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/budgets", budgetRoutes);
+app.use("/api/v1/dashboard", dashboardRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
