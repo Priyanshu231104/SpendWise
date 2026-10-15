@@ -12,8 +12,8 @@ import categoryRoutes from "./routes/categoryRoutes.js";
 import budgetRoutes from "./routes/budgetRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import financialGoalRoutes from "./routes/financialGoalRoutes.js";
-
 import recurringTransactionRoutes from "./routes/recurringTransactionRoutes.js";
+import reportRoutes from "./routes/reportRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -51,6 +51,7 @@ app.use(
   "/api/v1/recurring-transactions",
   recurringTransactionRoutes
 );
+app.use("/api/v1/reports", reportRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
