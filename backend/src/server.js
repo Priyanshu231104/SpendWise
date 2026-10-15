@@ -14,6 +14,8 @@ import dashboardRoutes from "./routes/dashboardRoutes.js";
 import financialGoalRoutes from "./routes/financialGoalRoutes.js";
 import recurringTransactionRoutes from "./routes/recurringTransactionRoutes.js";
 import reportRoutes from "./routes/reportRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
+import insightsRoutes from "./routes/insightsRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -52,6 +54,8 @@ app.use(
   recurringTransactionRoutes
 );
 app.use("/api/v1/reports", reportRoutes);
+app.use("/api/v1/analytics", analyticsRoutes);
+app.use("/api/v1/insights", insightsRoutes);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
