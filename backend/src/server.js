@@ -13,6 +13,8 @@ import budgetRoutes from "./routes/budgetRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import financialGoalRoutes from "./routes/financialGoalRoutes.js";
 
+import recurringTransactionRoutes from "./routes/recurringTransactionRoutes.js";
+
 dotenv.config();
 const app = express();
 
@@ -45,6 +47,10 @@ app.use("/api/v1/categories", categoryRoutes);
 app.use("/api/v1/budgets", budgetRoutes);
 app.use("/api/v1/dashboard", dashboardRoutes);
 app.use("/api/v1/goals", financialGoalRoutes);
+app.use(
+  "/api/v1/recurring-transactions",
+  recurringTransactionRoutes
+);
 
 // Health check
 app.get("/api/v1/health", (req, res) => {
