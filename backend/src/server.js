@@ -22,14 +22,45 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-// Security middleware
+
+ // Security middleware
 app.use(helmet());
 
-// CORS
-app.use(cors());
+// Allow the local frontend to send requests with cookies.
+app.use(
+  cors({
+    origin: "http://localhost:5173",
+    credentials: true,
+  })
+);
 
-// Parse JSON request bodies
+// Parse JSON request bodies.
 app.use(express.json());
+
+// Parse cookies without adding another dependency.
+app.use((req, res, next) => {
+  req.cookies = {};
+
+  const cookieHeader = req.headers.cookie;
+
+  if (cookieHeader) {
+    cookieHeader.split(";").forEach((cookie) => {
+      const separatorIndex = cookie.indexOf("=");
+
+      if (separatorIndex === -1) return;
+
+      const name = cookie.slice(0, separatorIndex).trim();
+      const value = cookie.slice(separatorIndex + 1).trim();
+
+      if (name) {
+        req.cookies[name] = decodeURIComponent(value);
+      }
+    });
+  }
+
+  next();
+});
+
 
 // Basic rate limiting
 const apiLimiter = rateLimit({

@@ -11,6 +11,27 @@ import {
 } from "../utils/crypto.js";
 import RefreshToken from "../models/RefreshToken.js";
 
+
+const REFRESH_COOKIE_NAME = "spendwise_refresh";
+
+const refreshCookieOptions = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax",
+  path: "/api/v1/auth",
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
+const clearRefreshCookie = (res) => {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/api/v1/auth",
+  });
+};
+
+
 export const registerUser = async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -138,14 +159,20 @@ export const loginUser = async (req, res) => {
       tokenHash: hashToken(refreshToken),
       expiresAt: refreshTokenExpiresAt,
     });
-    
-    // 9. Return tokens and safe user information
+    // Set the refresh token in an HttpOnly cookie.
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      refreshToken,
+      refreshCookieOptions
+    );
+
+    // Return the access token and safe user information.
+    // The refresh token is no longer exposed in the JSON response.
     return res.status(200).json({
       success: true,
       message: "Login successful",
       data: {
         accessToken,
-        refreshToken,
         user: {
           id: user._id,
           name: user.name,
@@ -155,6 +182,7 @@ export const loginUser = async (req, res) => {
         },
       },
     });
+
   } catch (error) {
     console.error("Login error:", error.message);
 
@@ -167,7 +195,7 @@ export const loginUser = async (req, res) => {
 
 export const refreshAccessToken = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
 
     if (!refreshToken) {
       return res.status(401).json({
@@ -268,15 +296,21 @@ export const refreshAccessToken = async (req, res) => {
       tokenHash: hashToken(newRefreshToken),
       expiresAt: newRefreshTokenExpiresAt,
     });
+    // Replace the old cookie with the newly rotated refresh token.
+    res.cookie(
+      REFRESH_COOKIE_NAME,
+      newRefreshToken,
+      refreshCookieOptions
+    );
 
     return res.status(200).json({
       success: true,
       message: "Access token refreshed successfully",
       data: {
         accessToken: newAccessToken,
-        refreshToken: newRefreshToken,
       },
     });
+
   } catch (error) {
     console.error("Refresh token error:", error.message);
 
@@ -289,7 +323,7 @@ export const refreshAccessToken = async (req, res) => {
 
 export const logoutUser = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
+    const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
 
     if (!refreshToken) {
       return res.status(400).json({
@@ -343,6 +377,7 @@ export const logoutUser = async (req, res) => {
 
     await storedToken.save();
 
+    clearRefreshCookie(res);
     return res.status(200).json({
       success: true,
       message: "Logout successful",

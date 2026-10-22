@@ -4,18 +4,34 @@ import Transaction from "../models/Transaction.js";
 import Category from "../models/Category.js";
 import Budget from "../models/Budget.js";
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
 const parseDate = (value) => {
   if (typeof value !== "string" || value.trim() === "") {
     return null;
   }
 
-  const date = new Date(value);
+  const input = value.trim();
+  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
 
-  if (Number.isNaN(date.getTime())) {
-    return null;
+  if (dateOnlyPattern.test(input)) {
+    const [year, month, day] = input.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
   }
 
-  return date;
+  const date = new Date(input);
+
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
 const parseDateRange = (query) => {
@@ -35,12 +51,29 @@ const parseDateRange = (query) => {
   }
 
   if (start > end) {
-    return { error: "from must be before or equal to to." };
+    return {
+      error: "from must be before or equal to to.",
+    };
   }
 
-  return { start, end };
+  const isDateOnly =
+    typeof to === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(to.trim());
+
+  const endExclusive = isDateOnly
+    ? new Date(end.getTime() + DAY_IN_MS)
+    : new Date(end.getTime() + 1);
+
+  return { start, end, endExclusive };
 };
 
+const getUserObjectId = (userId) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new Error("Invalid authenticated user ID.");
+  }
+
+  return new mongoose.Types.ObjectId(userId);
+};
 
 export const getFinancialReportSummary = async (req, res) => {
   try {
@@ -53,16 +86,14 @@ export const getFinancialReportSummary = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const summary = await Transaction.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(req.user.id),
-          date: {
-            $gte: start,
-            $lte: end,
-          },
+          userId,
+          date: { $gte: start, $lt: endExclusive },
         },
       },
       {
@@ -97,7 +128,7 @@ export const getFinancialReportSummary = async (req, res) => {
       { $sort: { currency: 1 } },
     ]);
 
-    const currencies = summary.map((item) => {
+    const data = summary.map((item) => {
       const income = item.totals.find(
         (entry) => entry.type === "INCOME"
       );
@@ -127,7 +158,7 @@ export const getFinancialReportSummary = async (req, res) => {
         from: start.toISOString(),
         to: end.toISOString(),
       },
-      data: currencies,
+      data,
     });
   } catch (error) {
     console.error("Get financial report summary error:", error);
@@ -138,7 +169,6 @@ export const getFinancialReportSummary = async (req, res) => {
     });
   }
 };
-
 
 export const getCategoryBreakdownReport = async (req, res) => {
   try {
@@ -151,17 +181,15 @@ export const getCategoryBreakdownReport = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const breakdown = await Transaction.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(req.user.id),
+          userId,
           type: "EXPENSE",
-          date: {
-            $gte: start,
-            $lte: end,
-          },
+          date: { $gte: start, $lt: endExclusive },
         },
       },
       {
@@ -192,7 +220,7 @@ export const getCategoryBreakdownReport = async (req, res) => {
 
     const categories = await Category.find({
       _id: { $in: categoryIds },
-      userId: req.user.id,
+      userId,
     })
       .select("_id name color icon")
       .lean();
@@ -240,7 +268,6 @@ export const getCategoryBreakdownReport = async (req, res) => {
   }
 };
 
-
 export const getBudgetPerformanceReport = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
@@ -252,11 +279,12 @@ export const getBudgetPerformanceReport = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const budgets = await Budget.find({
-      userId: req.user.id,
-      periodStart: { $lte: end },
+      userId,
+      periodStart: { $lt: endExclusive },
       periodEnd: { $gt: start },
     })
       .sort({ periodStart: -1 })
@@ -264,17 +292,21 @@ export const getBudgetPerformanceReport = async (req, res) => {
 
     const data = await Promise.all(
       budgets.map(async (budget) => {
+        const rangeStart =
+          budget.periodStart > start ? budget.periodStart : start;
+
+        const rangeEndExclusive =
+          budget.periodEnd < endExclusive
+            ? budget.periodEnd
+            : endExclusive;
+
         const match = {
-          userId: new mongoose.Types.ObjectId(req.user.id),
+          userId,
           type: "EXPENSE",
           currency: budget.currency,
           date: {
-            $gte: budget.periodStart > start
-              ? budget.periodStart
-              : start,
-            $lt: budget.periodEnd < new Date(end.getTime() + 1)
-              ? budget.periodEnd
-              : new Date(end.getTime() + 1),
+            $gte: rangeStart,
+            $lt: rangeEndExclusive,
           },
         };
 
@@ -295,9 +327,15 @@ export const getBudgetPerformanceReport = async (req, res) => {
 
         const spentMinor = result?.spentMinor ?? 0;
         const remainingMinor = budget.amountMinor - spentMinor;
-        const percentageUsed = Number(
-          ((spentMinor / budget.amountMinor) * 100).toFixed(2)
-        );
+
+        const percentageUsed =
+          budget.amountMinor > 0
+            ? Number(
+                ((spentMinor / budget.amountMinor) * 100).toFixed(2)
+              )
+            : spentMinor > 0
+              ? 100
+              : 0;
 
         return {
           budgetId: budget._id,

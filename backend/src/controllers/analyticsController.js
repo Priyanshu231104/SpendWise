@@ -1,38 +1,78 @@
+
 import Category from "../models/Category.js";
 import mongoose from "mongoose";
 import Transaction from "../models/Transaction.js";
 
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const parseDate = (value) => {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
+
+  const input = value.trim();
+  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+
+  if (dateOnlyPattern.test(input)) {
+    const [year, month, day] = input.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    return date;
+  }
+
+  const date = new Date(input);
+
+  return Number.isNaN(date.getTime()) ? null : date;
+};
+
 const parseDateRange = (query) => {
   const { from, to } = query;
 
-  if (
-    typeof from !== "string" ||
-    typeof to !== "string" ||
-    !from.trim() ||
-    !to.trim()
-  ) {
+  if (from === undefined || to === undefined) {
     return {
       error: "Both from and to date parameters are required.",
     };
   }
 
-  const start = new Date(from);
-  const end = new Date(to);
+  const start = parseDate(from);
+  const end = parseDate(to);
 
-  if (
-    Number.isNaN(start.getTime()) ||
-    Number.isNaN(end.getTime())
-  ) {
+  if (!start || !end) {
     return { error: "Invalid from or to date." };
   }
 
   if (start > end) {
-    return { error: "from must be before or equal to to." };
+    return {
+      error: "from must be before or equal to to.",
+    };
   }
 
-  return { start, end };
+  const isDateOnly =
+    typeof to === "string" &&
+    /^\d{4}-\d{2}-\d{2}$/.test(to.trim());
+
+  const endExclusive = isDateOnly
+    ? new Date(end.getTime() + DAY_IN_MS)
+    : new Date(end.getTime() + 1);
+
+  return { start, end, endExclusive };
 };
 
+const getUserObjectId = (userId) => {
+  if (!mongoose.Types.ObjectId.isValid(userId)) {
+    throw new Error("Invalid authenticated user ID.");
+  }
+
+  return new mongoose.Types.ObjectId(userId);
+};
 
 export const getMonthlyTrends = async (req, res) => {
   try {
@@ -45,15 +85,16 @@ export const getMonthlyTrends = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const results = await Transaction.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(req.user.id),
+          userId,
           date: {
             $gte: start,
-            $lte: end,
+            $lt: endExclusive,
           },
         },
       },
@@ -132,7 +173,6 @@ export const getMonthlyTrends = async (req, res) => {
   }
 };
 
-
 export const getSpendingDistribution = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
@@ -144,9 +184,8 @@ export const getSpendingDistribution = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
-
-    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const results = await Transaction.aggregate([
       {
@@ -155,7 +194,7 @@ export const getSpendingDistribution = async (req, res) => {
           type: "EXPENSE",
           date: {
             $gte: start,
-            $lte: end,
+            $lt: endExclusive,
           },
         },
       },
@@ -183,9 +222,8 @@ export const getSpendingDistribution = async (req, res) => {
     const categoryIds = [
       ...new Set(
         results
-          .map((item) => item._id.categoryId)
-          .filter((id) => id !== null)
-          .map((id) => id.toString())
+          .map((item) => item._id.categoryId?.toString())
+          .filter(Boolean)
       ),
     ].map((id) => new mongoose.Types.ObjectId(id));
 
@@ -231,9 +269,7 @@ export const getSpendingDistribution = async (req, res) => {
         categoryId: categoryId
           ? categoryId.toString()
           : null,
-        name: category
-          ? category.name
-          : "Uncategorized",
+        name: category ? category.name : "Uncategorized",
         color: category?.color ?? null,
         icon: category?.icon ?? null,
         amountMinor: item.totalMinor,
@@ -278,7 +314,6 @@ export const getSpendingDistribution = async (req, res) => {
   }
 };
 
-
 export const getSavingsTrend = async (req, res) => {
   try {
     const range = parseDateRange(req.query);
@@ -290,15 +325,16 @@ export const getSavingsTrend = async (req, res) => {
       });
     }
 
-    const { start, end } = range;
+    const { start, end, endExclusive } = range;
+    const userId = getUserObjectId(req.user.id);
 
     const results = await Transaction.aggregate([
       {
         $match: {
-          userId: new mongoose.Types.ObjectId(req.user.id),
+          userId,
           date: {
             $gte: start,
-            $lte: end,
+            $lt: endExclusive,
           },
         },
       },
