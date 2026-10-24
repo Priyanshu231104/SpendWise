@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { useGuest } from "../../context/useGuest";
 import InputField from "../../components/common/InputField";
@@ -6,6 +7,7 @@ import Card from "../../components/common/Card";
 
 function SavingsGoalCalculatorPage() {
   const { guestData, saveGuestData } = useGuest();
+
   const [formData, setFormData] = useState(
     guestData.savingsGoal?.formData || {
       goalAmount: "",
@@ -13,7 +15,7 @@ function SavingsGoalCalculatorPage() {
       months: "",
     }
   );
-  
+
   const [result, setResult] = useState(
     guestData.savingsGoal?.result || null
   );
@@ -23,8 +25,8 @@ function SavingsGoalCalculatorPage() {
     new Intl.NumberFormat("en-IN", {
       style: "currency",
       currency: "INR",
-      maximumFractionDigits: 2,
       minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
 
   const handleChange = (event) => {
@@ -36,6 +38,7 @@ function SavingsGoalCalculatorPage() {
     }));
 
     setError("");
+    setResult(null);
   };
 
   const handleCalculate = () => {
@@ -81,8 +84,6 @@ function SavingsGoalCalculatorPage() {
     const monthlySavings = remainingAmount / duration;
     const progress = Math.min((saved / goal) * 100, 100);
 
-    setError("");
-
     const calculationResult = {
       goalAmount: goal,
       currentSavings: saved,
@@ -92,9 +93,10 @@ function SavingsGoalCalculatorPage() {
       achieved: saved >= goal,
       months: duration,
     };
-    
+
+    setError("");
     setResult(calculationResult);
-    
+
     saveGuestData("savingsGoal", {
       formData,
       result: calculationResult,
@@ -102,213 +104,274 @@ function SavingsGoalCalculatorPage() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-5xl">
+    <main className="min-h-screen bg-[#F4F7FA] px-4 py-10 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-6xl">
         <section className="mb-8">
-          <span className="inline-flex rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-indigo-700">
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-100 bg-[#E7F7F2] px-3 py-1.5 text-xs font-bold uppercase tracking-[0.14em] text-emerald-700">
+            <span className="h-2 w-2 rounded-full bg-[#0BB079]" />
             Savings planner
           </span>
 
-          <h1 className="mt-4 text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
-            Savings Goal Calculator
+          <h1 className="mt-4 max-w-3xl text-3xl font-extrabold tracking-tight text-[#0C1A33] sm:text-4xl lg:text-5xl">
+            Make your goals happen,
+            <span className="block text-[#0BB079]">
+              one month at a time.
+            </span>
           </h1>
 
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600 sm:text-base">
-            Turn your financial goals into a practical monthly savings
-            plan. Find out how much more you need to save and track
-            your progress toward your target.
+          <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-600 sm:text-base">
+            Turn your savings target into a practical monthly plan.
+            See how much you still need and track your progress toward
+            the things that matter to you.
           </p>
         </section>
 
-        <Card>
-          <div className="mb-6">
-            <h2 className="text-xl font-semibold text-slate-900">
-              Your Savings Goal
-            </h2>
+        <div className="grid items-start gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+          <Card>
+            <div className="mb-6 flex items-center gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[#E7F7F2] text-xl font-bold text-emerald-700">
+                ₹
+              </div>
 
-            <p className="mt-1 text-sm text-slate-500">
-              Enter your target, existing savings, and timeline.
-            </p>
-          </div>
+              <div>
+                <h2 className="text-xl font-bold text-[#0C1A33]">
+                  Your savings target
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  Set your goal and choose a realistic timeline.
+                </p>
+              </div>
+            </div>
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="sm:col-span-2">
+            <div className="mb-5 rounded-2xl border border-emerald-100 bg-[#F0FAF6] p-4">
               <InputField
-                label="Target Savings Amount"
+                label="Target savings amount (₹)"
                 name="goalAmount"
                 type="number"
                 value={formData.goalAmount}
                 onChange={handleChange}
                 min="0"
+                step="any"
                 placeholder="e.g. 100000"
+                required
+              />
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                How much money would you like to save in total?
+              </p>
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <InputField
+                label="Current savings (₹)"
+                name="currentSavings"
+                type="number"
+                value={formData.currentSavings}
+                onChange={handleChange}
+                min="0"
+                step="any"
+                placeholder="e.g. 15000"
+                required
+              />
+
+              <InputField
+                label="Time available (months)"
+                name="months"
+                type="number"
+                value={formData.months}
+                onChange={handleChange}
+                min="1"
+                max="1200"
+                step="1"
+                placeholder="e.g. 12"
                 required
               />
             </div>
 
-            <InputField
-              label="Current Savings"
-              name="currentSavings"
-              type="number"
-              value={formData.currentSavings}
-              onChange={handleChange}
-              min="0"
-              placeholder="e.g. 15000"
-              required
-            />
-
-            <InputField
-              label="Time to Reach Goal (Months)"
-              name="months"
-              type="number"
-              value={formData.months}
-              onChange={handleChange}
-              min="1"
-              step="1"
-              placeholder="e.g. 12"
-              required
-            />
-          </div>
-
-          {error && (
-            <p
-              role="alert"
-              className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
-            >
-              {error}
-            </p>
-          )}
-
-          <div className="mt-6">
-            <Button onClick={handleCalculate}>
-              Calculate Savings Plan
-            </Button>
-          </div>
-        </Card>
-
-        {result && (
-          <Card className="mt-6">
-            <div className="mb-6">
-              <h2 className="text-xl font-semibold text-slate-900">
-                Your Savings Plan
-              </h2>
-
-              <p className="mt-1 text-sm text-slate-500">
-                Here is your estimated path toward your goal.
-              </p>
-            </div>
-
-            {result.achieved ? (
-              <div
-                role="status"
-                className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5"
+            {error && (
+              <p
+                role="alert"
+                className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700"
               >
-                <h3 className="text-lg font-bold text-emerald-800">
-                  Congratulations! Goal achieved.
-                </h3>
-
-                <p className="mt-1 text-sm leading-6 text-emerald-700">
-                  Your current savings meet or exceed your target.
-                  You do not need to save anything additional to reach
-                  this goal.
-                </p>
-              </div>
-            ) : (
-              <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50 p-5">
-                <p className="text-sm font-medium text-indigo-700">
-                  Recommended Monthly Savings
-                </p>
-
-                <p className="mt-2 text-3xl font-bold tracking-tight text-indigo-700 sm:text-4xl">
-                  {formatCurrency(result.monthlySavings)}
-                </p>
-
-                <p className="mt-2 text-sm text-indigo-600">
-                  Save this amount every month for{" "}
-                  {result.months} months to reach your target,
-                  assuming no interest or investment returns.
-                </p>
-              </div>
+                {error}
+              </p>
             )}
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Target Amount
-                </p>
-
-                <p className="mt-2 text-xl font-bold text-slate-900">
-                  {formatCurrency(result.goalAmount)}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Already Saved
-                </p>
-
-                <p className="mt-2 text-xl font-bold text-slate-900">
-                  {formatCurrency(result.currentSavings)}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Amount Remaining
-                </p>
-
-                <p className="mt-2 text-xl font-bold text-slate-900">
-                  {formatCurrency(result.remainingAmount)}
-                </p>
-              </div>
-
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Time Available
-                </p>
-
-                <p className="mt-2 text-xl font-bold text-slate-900">
-                  {result.months} months
-                </p>
-              </div>
+            <div className="mt-6">
+              <Button onClick={handleCalculate}>
+                Calculate my savings plan
+              </Button>
             </div>
 
-            <div className="mt-5 rounded-xl border border-slate-200 bg-white p-5">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-semibold text-slate-700">
-                  Goal Progress
-                </h3>
-
-                <span className="text-sm font-bold text-indigo-600">
-                  {result.progress.toFixed(1)}%
-                </span>
-              </div>
-
-              <div
-                className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100"
-                role="progressbar"
-                aria-label="Savings goal progress"
-                aria-valuenow={Number(result.progress.toFixed(1))}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div
-                  className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-                  style={{ width: `${result.progress}%` }}
-                />
-              </div>
-
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                You have saved {formatCurrency(result.currentSavings)}{" "}
-                toward your {formatCurrency(result.goalAmount)} goal.
-              </p>
-            </div>
+            <p className="mt-4 text-xs leading-5 text-slate-500">
+              Your inputs are used for this calculator's guest
+              experience. Results are estimates, not financial advice.
+            </p>
           </Card>
-        )}
 
-        <p className="mt-5 text-center text-xs leading-5 text-slate-500">
-          This calculator provides estimates based on your inputs.
-          It does not account for interest, investment returns,
-          inflation, or changes in your savings.
+          <div className="space-y-6">
+            <Card className="overflow-hidden !p-0">
+              <div className="bg-[#0C1A33] p-6 text-white sm:p-7">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-slate-300">
+                    Your savings goal
+                  </p>
+                  <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-emerald-300">
+                    {result?.achieved ? "Achieved" : "Your next milestone"}
+                  </span>
+                </div>
+
+                <p className="mt-4 text-3xl font-extrabold tracking-tight sm:text-4xl">
+                  {result
+                    ? formatCurrency(result.goalAmount)
+                    : "₹1,00,000"}
+                </p>
+
+                <p className="mt-2 text-sm leading-6 text-slate-300">
+                  {result
+                    ? result.achieved
+                      ? "You've reached your savings target."
+                      : `Save ${formatCurrency(result.monthlySavings)} each month to reach your goal.`
+                    : "Enter your own target to build a personalized savings plan."}
+                </p>
+
+                <div className="mt-6">
+                  <div className="flex items-center justify-between text-xs text-slate-300">
+                    <span>Goal progress</span>
+                    <span className="font-bold text-emerald-300">
+                      {result ? `${result.progress.toFixed(1)}%` : "0%"}
+                    </span>
+                  </div>
+
+                  <div
+                    className="mt-2 h-2.5 overflow-hidden rounded-full bg-white/15"
+                    role="progressbar"
+                    aria-label="Savings goal progress"
+                    aria-valuenow={result ? Number(result.progress.toFixed(1)) : 0}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                  >
+                    <div
+                      className="h-full rounded-full bg-[#0BB079] transition-all duration-500"
+                      style={{
+                        width: `${result ? result.progress : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 p-4 sm:p-5">
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Already saved</p>
+                  <p className="mt-2 break-words text-lg font-bold text-[#0C1A33]">
+                    {formatCurrency(result?.currentSavings ?? 0)}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-slate-50 p-4">
+                  <p className="text-xs text-slate-500">Still needed</p>
+                  <p className="mt-2 break-words text-lg font-bold text-[#0C1A33]">
+                    {formatCurrency(result?.remainingAmount ?? 0)}
+                  </p>
+                </div>
+              </div>
+            </Card>
+
+            {result && (
+              <Card>
+                <h2 className="text-lg font-bold text-[#0C1A33]">
+                  Your monthly plan
+                </h2>
+
+                {result.achieved ? (
+                  <div
+                    role="status"
+                    className="mt-4 rounded-xl border border-emerald-200 bg-[#E7F7F2] p-4"
+                  >
+                    <p className="font-bold text-emerald-800">
+                      Congratulations! Goal achieved.
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-emerald-700">
+                      Your current savings meet or exceed your target.
+                      No additional savings are required to reach it.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-xl border border-emerald-100 bg-[#F0FAF6] p-5">
+                    <p className="text-sm font-medium text-emerald-800">
+                      Recommended monthly savings
+                    </p>
+                    <p className="mt-2 text-3xl font-extrabold text-emerald-700">
+                      {formatCurrency(result.monthlySavings)}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      For {result.months} months, assuming no interest
+                      or investment returns.
+                    </p>
+                  </div>
+                )}
+
+                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm">
+                  <span className="text-slate-500">Target timeline</span>
+                  <span className="font-semibold text-[#0C1A33]">
+                    {result.months} months
+                  </span>
+                </div>
+              </Card>
+            )}
+
+            <div className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h3 className="font-bold text-[#0C1A33]">
+                A simple plan works
+              </h3>
+              <ol className="mt-4 space-y-4">
+                <li className="flex gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E7F7F2] text-sm font-bold text-emerald-700">
+                    1
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-[#0C1A33]">
+                      Set a clear target
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-slate-500">
+                      Decide how much you want to save.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E7F7F2] text-sm font-bold text-emerald-700">
+                    2
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-[#0C1A33]">
+                      Choose your timeline
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-slate-500">
+                      Pick a monthly plan that fits your goal.
+                    </p>
+                  </div>
+                </li>
+                <li className="flex gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#E7F7F2] text-sm font-bold text-emerald-700">
+                    3
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-[#0C1A33]">
+                      Track your progress
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-slate-500">
+                      Review your target as your savings grow.
+                    </p>
+                  </div>
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
+        <p className="mt-6 text-center text-xs leading-5 text-slate-500">
+          This calculator does not account for interest, investment
+          returns, inflation, or changes in your savings.
         </p>
       </div>
     </main>

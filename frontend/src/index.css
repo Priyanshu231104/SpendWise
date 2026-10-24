@@ -110,3 +110,346 @@ svg {
     transition-duration: 0.01ms !important;
   }
 }
+
+
+/* SpendWise landing-page motion */
+@keyframes sw-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(22px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sw-soft-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.sw-animate-fade-up {
+  animation: sw-fade-up 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-animate-fade-up-delay-1 {
+  animation: sw-fade-up 700ms 120ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-animate-fade-up-delay-2 {
+  animation: sw-fade-up 700ms 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.sw-animate-float {
+  animation: sw-soft-float 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-animate-fade-up,
+  .sw-animate-fade-up-delay-1,
+  .sw-animate-fade-up-delay-2,
+  .sw-animate-float {
+    animation: none !important;
+  }
+}
+
+
+/* ========================================
+   SpendWise Landing Page Animations
+======================================== */
+
+@keyframes sw-enter-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 24px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes sw-enter-right {
+  from {
+    opacity: 0;
+    transform: translate3d(28px, 0, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes sw-dashboard-float {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+@keyframes sw-progress-fill {
+  from {
+    width: 0;
+  }
+  to {
+    width: 62.5%;
+  }
+}
+
+.sw-hero-enter {
+  animation: sw-enter-up 750ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-hero-enter-delay-1 {
+  animation: sw-enter-up 750ms 120ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-hero-enter-delay-2 {
+  animation: sw-enter-up 750ms 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-dashboard-enter {
+  animation: sw-enter-right 900ms 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-dashboard-float {
+  animation: sw-dashboard-float 5s ease-in-out 1.2s infinite;
+}
+
+.sw-progress-animate {
+  animation: sw-progress-fill 1.4s 800ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-card-reveal {
+  animation: sw-enter-up 650ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.sw-card-reveal:nth-child(2) {
+  animation-delay: 100ms;
+}
+
+.sw-card-reveal:nth-child(3) {
+  animation-delay: 200ms;
+}
+
+/* Polished interactive hover effects */
+.sw-interactive-card {
+  transition:
+    transform 280ms ease,
+    box-shadow 280ms ease,
+    border-color 280ms ease;
+}
+
+.sw-interactive-card:hover {
+  transform: translateY(-5px);
+  border-color: #b8e9d7;
+  box-shadow: 0 18px 40px rgb(12 26 51 / 8%);
+}
+
+.sw-cta-hover {
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    background-color 220ms ease;
+}
+
+.sw-cta-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 24px rgb(12 26 51 / 14%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-hero-enter,
+  .sw-hero-enter-delay-1,
+  .sw-hero-enter-delay-2,
+  .sw-dashboard-enter,
+  .sw-dashboard-float,
+  .sw-progress-animate,
+  .sw-card-reveal {
+    animation: none !important;
+  }
+
+  .sw-interactive-card,
+  .sw-cta-hover {
+    transition: none !important;
+  }
+
+  .sw-interactive-card:hover,
+  .sw-cta-hover:hover {
+    transform: none;
+  }
+}
+
+
+@keyframes sw-underline {
+  to {
+    width: 100%;
+  }
+}
+
+@keyframes sw-expense-enter {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.sw-expense-enter {
+  animation: sw-expense-enter 550ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-expense-enter {
+    animation: none !important;
+  }
+}
+
+
+/* ========================================
+   SpendWise — Public calculator animations
+   ======================================== */
+
+@keyframes sw-calc-enter {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sw-calculator-glow {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translate3d(0, 0, 0);
+  }
+
+  50% {
+    opacity: 0.9;
+    transform: translate3d(-12px, 10px, 0);
+  }
+}
+
+@keyframes sw-calculator-icon-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.82) rotate(-8deg);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+
+.sw-calculators-page .sw-calc-reveal {
+  animation: sw-calc-enter 650ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sw-calculators-page .sw-calc-reveal-delay-1 {
+  animation: sw-calc-enter 700ms 120ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sw-calculators-page .sw-calc-reveal-delay-2 {
+  animation: sw-calc-enter 700ms 240ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sw-calculators-page .sw-calculator-glow {
+  animation: sw-calculator-glow 10s ease-in-out infinite;
+}
+
+.sw-calculators-page .sw-calculator-glow-delay {
+  animation-delay: -5s;
+}
+
+.sw-calculators-page .sw-calculator-card {
+  animation: sw-calc-enter 650ms
+    calc(160ms + var(--card-index, 0) * 90ms)
+    cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+.sw-calculators-page .sw-calculator-icon {
+  transition:
+    background-color 220ms ease,
+    color 220ms ease,
+    border-color 220ms ease,
+    transform 280ms cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+.sw-calculators-page .sw-calculator-arrow {
+  transition: transform 220ms ease;
+}
+
+.sw-calculators-page .sw-calculator-card-active {
+  transition:
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    transform 220ms ease;
+}
+
+.sw-calculators-page .sw-calculator-card-active:hover {
+  transform: translateY(-5px);
+  border-color: #A7E5CE;
+  box-shadow:
+    0 18px 35px rgb(12 26 51 / 7%),
+    0 4px 12px rgb(11 176 121 / 5%);
+}
+
+.sw-calculators-page .sw-calculator-card-active:hover .sw-calculator-icon {
+  transform: translateY(-2px) rotate(-3deg);
+  border-color: #B7E9D7;
+  background-color: #D6F3E8;
+}
+
+.sw-calculators-page .sw-calculator-card-active:hover .sw-calculator-arrow {
+  transform: translateX(5px);
+}
+
+.sw-calculators-page .sw-calculator-cta {
+  transition:
+    transform 220ms ease,
+    background-color 220ms ease,
+    box-shadow 220ms ease;
+}
+
+.sw-calculators-page .sw-calculator-cta:hover {
+  transform: translateY(-2px);
+  background-color: #099768;
+  box-shadow: 0 12px 24px rgb(11 176 121 / 20%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sw-calculators-page .sw-calc-reveal,
+  .sw-calculators-page .sw-calc-reveal-delay-1,
+  .sw-calculators-page .sw-calc-reveal-delay-2,
+  .sw-calculators-page .sw-calculator-glow,
+  .sw-calculators-page .sw-calculator-card {
+    animation: none !important;
+  }
+
+  .sw-calculators-page .sw-calculator-card-active,
+  .sw-calculators-page .sw-calculator-icon,
+  .sw-calculators-page .sw-calculator-arrow,
+  .sw-calculators-page .sw-calculator-cta {
+    transition: none !important;
+  }
+}
