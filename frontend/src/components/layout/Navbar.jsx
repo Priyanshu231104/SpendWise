@@ -1,3 +1,4 @@
+import SpendWiseLogo from "../brand/SpendWiseLogo";
 import { Link, NavLink } from "react-router-dom";
 
 function Navbar() {
@@ -10,13 +11,7 @@ function Navbar() {
           className="group flex items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
           aria-label="SpendWise home"
         >
-          <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-900 text-lg font-bold text-white shadow-sm transition-transform duration-200 group-hover:scale-105">
-            S
-          </span>
-
-          <span className="text-xl font-bold tracking-tight text-slate-900">
-            Spend<span className="text-indigo-600">Wise</span>
-          </span>
+          <SpendWiseLogo />
         </Link>
 
         {/* Navigation Links */}

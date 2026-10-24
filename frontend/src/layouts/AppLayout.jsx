@@ -1,4 +1,5 @@
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import {
   Link,
   NavLink,
@@ -6,6 +7,8 @@ import {
   useNavigate,
 } from "react-router-dom";
 import { useAuth } from "../context/useAuth.js";
+import SpendWiseLogo from "../components/brand/SpendWiseLogo";
+import BrandIntroOverlay from "../components/brand/BrandIntroOverlay";
 
 const navigationItems = [
   { label: "Dashboard", to: "/dashboard", icon: "▦" },
@@ -23,6 +26,15 @@ function AppLayout() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [logoutError, setLogoutError] = useState("");
+  const [showBrandIntro, setShowBrandIntro] = useState(true);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setShowBrandIntro(false);
+    }, 2200);
+
+    return () => window.clearTimeout(timer);
+  }, []);
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -42,25 +54,22 @@ function AppLayout() {
   const linkClass = ({ isActive }) =>
     `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-semibold transition ${
       isActive
-        ? "bg-indigo-50 text-indigo-700"
-        : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"
+        ? "bg-[#E7F7F2] text-[#087F5B]"
+        : "text-[#475569] hover:bg-slate-50 hover:text-[#0C1A33]"
     }`;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-[#F4F7FA] text-[#0C1A33]">
+      {showBrandIntro && <BrandIntroOverlay />}
+
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur">
         <div className="mx-auto flex min-h-18 max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
           <Link
             to="/dashboard"
-            className="flex shrink-0 items-center gap-3 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+            className="flex shrink-0 items-center rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0BB079]"
             aria-label="SpendWise dashboard"
           >
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-950 text-lg font-bold text-white shadow-sm">
-              S
-            </span>
-            <span className="text-xl font-bold tracking-tight">
-              Spend<span className="text-indigo-600">Wise</span>
-            </span>
+            <SpendWiseLogo />
           </Link>
 
           <nav
@@ -81,10 +90,10 @@ function AppLayout() {
 
           <div className="relative flex shrink-0 items-center gap-3">
             <div className="hidden text-right sm:block">
-              <p className="max-w-36 truncate text-sm font-semibold">
+              <p className="max-w-36 truncate text-sm font-semibold text-[#0C1A33]">
                 {user?.name || "Account"}
               </p>
-              <p className="max-w-36 truncate text-xs text-slate-500">
+              <p className="max-w-36 truncate text-xs text-[#475569]">
                 {user?.email || ""}
               </p>
             </div>
@@ -94,7 +103,7 @@ function AppLayout() {
               onClick={() => setIsMenuOpen((open) => !open)}
               aria-expanded={isMenuOpen}
               aria-label="Open account menu"
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700 transition hover:bg-indigo-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#E7F7F2] text-sm font-bold text-[#087F5B] transition hover:bg-[#D0F1E7] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0BB079]"
             >
               {(user?.name || "U").trim().charAt(0).toUpperCase()}
             </button>
@@ -110,10 +119,10 @@ function AppLayout() {
 
                 <div className="absolute right-0 top-14 z-50 w-64 rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
                   <div className="border-b border-slate-100 px-3 py-3">
-                    <p className="truncate text-sm font-semibold">
+                    <p className="truncate text-sm font-semibold text-[#0C1A33]">
                       {user?.name || "Account"}
                     </p>
-                    <p className="truncate text-xs text-slate-500">
+                    <p className="truncate text-xs text-[#475569]">
                       {user?.email || ""}
                     </p>
                   </div>
@@ -121,9 +130,9 @@ function AppLayout() {
                   <Link
                     to="/profile"
                     onClick={() => setIsMenuOpen(false)}
-                    className="mt-1 flex items-center rounded-xl px-3 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="mt-1 flex items-center rounded-xl px-3 py-3 text-sm font-medium text-[#475569] hover:bg-[#F4F7FA] hover:text-[#0C1A33]"
                   >
-                    Profile & settings
+                    Profile &amp; settings
                   </Link>
 
                   {logoutError && (
@@ -149,7 +158,6 @@ function AppLayout() {
           </div>
         </div>
 
-        {/* Compact navigation for smaller screens */}
         <nav
           className="flex gap-2 overflow-x-auto border-t border-slate-100 px-4 py-2 lg:hidden"
           aria-label="Mobile navigation"
@@ -161,8 +169,8 @@ function AppLayout() {
               className={({ isActive }) =>
                 `shrink-0 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                   isActive
-                    ? "bg-indigo-50 text-indigo-700"
-                    : "text-slate-600 hover:bg-slate-50"
+                    ? "bg-[#E7F7F2] text-[#087F5B]"
+                    : "text-[#475569] hover:bg-slate-50 hover:text-[#0C1A33]"
                 }`
               }
             >
@@ -175,8 +183,8 @@ function AppLayout() {
             className={({ isActive }) =>
               `shrink-0 rounded-lg px-3 py-2 text-sm font-semibold transition ${
                 isActive
-                  ? "bg-indigo-50 text-indigo-700"
-                  : "text-slate-600 hover:bg-slate-50"
+                  ? "bg-[#E7F7F2] text-[#087F5B]"
+                  : "text-[#475569] hover:bg-slate-50 hover:text-[#0C1A33]"
               }`
             }
           >
