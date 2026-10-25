@@ -439,7 +439,7 @@ export default function IncomePage() {
 
   return (
     <main className="min-h-screen bg-[#F3F6FA] px-4 py-7 sm:px-6 sm:py-9 lg:px-8">
-      <div className="mx-auto w-full max-w-[1440px] space-y-8">
+      <div className="mx-auto max-w-7xl">
         {/* Hero */}
         <section className="relative isolate overflow-hidden rounded-[28px] bg-[#0C1A33] px-6 py-8 shadow-xl shadow-slate-900/10 sm:px-9 sm:py-10 lg:px-10">
           <div
@@ -564,7 +564,7 @@ export default function IncomePage() {
         )}
 
         {/* Summary cards */}
-        <section>
+        <section className="mt-6 ...">
           <SectionHeading
             eyebrow="Your earnings"
             title="Income snapshot"
@@ -760,7 +760,7 @@ export default function IncomePage() {
         )}
 
         {/* Income history */}
-        <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
+        <section className="mt-6 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5 sm:p-7">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
               <SectionHeading
