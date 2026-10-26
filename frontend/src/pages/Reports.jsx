@@ -1,5 +1,5 @@
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getReportsData } from "../services/reportsApi.js";
 
 function toDateInputValue(date) {
@@ -127,63 +127,6 @@ function LegendItem({ color, label }) {
       />
       {label}
     </span>
-  );
-}
-
-function MetricCard({
-  title,
-  amount,
-  detail,
-  type = "neutral",
-  icon,
-}) {
-  const styles = {
-    income: {
-      icon: "bg-emerald-50 text-emerald-700",
-      amount: "text-emerald-700",
-      glow: "from-emerald-50/80",
-    },
-    expense: {
-      icon: "bg-rose-50 text-rose-700",
-      amount: "text-rose-700",
-      glow: "from-rose-50/80",
-    },
-    balance: {
-      icon: "bg-blue-50 text-blue-700",
-      amount: "text-slate-900",
-      glow: "from-blue-50/80",
-    },
-    neutral: {
-      icon: "bg-slate-100 text-slate-700",
-      amount: "text-slate-900",
-      glow: "from-slate-50",
-    },
-  };
-
-  const style = styles[type] || styles.neutral;
-
-  return (
-    <div
-      className={`relative min-w-0 overflow-hidden rounded-3xl border border-slate-200/80 bg-gradient-to-br ${style.glow} via-white to-white p-5 shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg sm:p-6`}
-    >
-      <div className="relative flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p
-            className={`mt-3 break-words text-2xl font-extrabold tracking-tight sm:text-3xl ${style.amount}`}
-          >
-            {amount}
-          </p>
-          <p className="mt-3 text-xs leading-5 text-slate-500">{detail}</p>
-        </div>
-        <div
-          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${style.icon}`}
-        >
-          {icon}
-        </div>
-      </div>
-      <div className="absolute -bottom-10 -right-8 h-24 w-24 rounded-full border-[14px] border-white/50" />
-    </div>
   );
 }
 
@@ -947,11 +890,6 @@ export default function Reports() {
     };
   }, [range]);
 
-  const summaryByCurrency = useMemo(
-    () => reports?.summary ?? [],
-    [reports],
-  );
-
   const presets = [
     { value: "today", label: "Today" },
     { value: "thisWeek", label: "This week" },
@@ -1158,100 +1096,7 @@ export default function Reports() {
           </div>
         ) : reports ? (
           <>
-            <section>
-              <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
-                    At a glance
-                  </p>
-                  <h2 className="mt-1 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">
-                    Your financial summary
-                  </h2>
-                </div>
-                {loading && (
-                  <span className="text-xs font-medium text-slate-500">
-                    Updating reports…
-                  </span>
-                )}
-              </div>
-
-              {summaryByCurrency.length === 0 ? (
-                <EmptyState message="No transactions were found for this period." />
-              ) : (
-                <div className="space-y-5">
-                  {summaryByCurrency.map((item) => (
-                    <div
-                      key={item.currency}
-                      className="space-y-3"
-                    >
-                      {summaryByCurrency.length > 1 && (
-                        <p className="text-sm font-bold text-slate-700">
-                          {item.currency} summary
-                        </p>
-                      )}
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                        <MetricCard
-                          title="Total income"
-                          amount={formatMoney(item.totalIncomeMinor, item.currency)}
-                          detail={`${item.incomeCount} income transactions`}
-                          type="income"
-                          icon={
-                            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 19V5m-6 6 6-6 6 6" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          }
-                        />
-                        <MetricCard
-                          title="Total expenses"
-                          amount={formatMoney(item.totalExpensesMinor, item.currency)}
-                          detail={`${item.expenseCount} expense transactions`}
-                          type="expense"
-                          icon={
-                            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M12 5v14m-6-6 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          }
-                        />
-                        <MetricCard
-                          title="Net balance"
-                          amount={formatMoney(item.netBalanceMinor, item.currency)}
-                          detail={`${item.transactionCount} total transactions`}
-                          type="balance"
-                          icon={
-                            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                              <rect x="3" y="5" width="18" height="14" rx="3" />
-                              <path d="M16 12h2M3 10h18" strokeLinecap="round" />
-                            </svg>
-                          }
-                        />
-                        <MetricCard
-                          title="Net cash flow"
-                          amount={formatMoney(
-                            Number(item.totalIncomeMinor || 0) -
-                              Number(item.totalExpensesMinor || 0),
-                            item.currency,
-                          )}
-                          detail="Income minus expenses"
-                          type={
-                            Number(item.totalIncomeMinor || 0) -
-                              Number(item.totalExpensesMinor || 0) >= 0
-                              ? "income"
-                              : "expense"
-                          }
-                          icon={
-                            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M4 17l5-5 4 3 7-8" strokeLinecap="round" strokeLinejoin="round" />
-                              <path d="M15 7h5v5" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          }
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
+            
             <section className="grid grid-cols-1 gap-5 xl:grid-cols-5">
               <Card
                 title="Income vs. expenses"
