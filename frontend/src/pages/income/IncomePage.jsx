@@ -193,10 +193,7 @@ export default function IncomePage() {
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const loadIncome = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
-
+  const fetchIncome = useCallback(async () => {
     const params = new URLSearchParams({
       page: String(page),
       limit: "10",
@@ -205,23 +202,53 @@ export default function IncomePage() {
     if (search) params.set("search", search);
     if (paymentMethod) params.set("paymentMethod", paymentMethod);
 
-    try {
-      const result = await apiRequest(`/income?${params.toString()}`, {
-        method: "GET",
-      });
+    const result = await apiRequest(`/income?${params.toString()}`, {
+      method: "GET",
+    });
 
-      setIncomeRecords(result.data.income);
-      setPagination(result.data.pagination);
+    return {
+      income: result.data.income,
+      pagination: result.data.pagination,
+    };
+  }, [page, search, paymentMethod]);
+
+  const loadIncome = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await fetchIncome();
+      setIncomeRecords(result.income);
+      setPagination(result.pagination);
     } catch (err) {
       setError(err.message || "Unable to load income records.");
     } finally {
       setIsLoading(false);
     }
-  }, [page, search, paymentMethod]);
+  }, [fetchIncome]);
 
   useEffect(() => {
-    loadIncome();
-  }, [loadIncome]);
+    let cancelled = false;
+
+    fetchIncome()
+      .then((result) => {
+        if (cancelled) return;
+        setIncomeRecords(result.income);
+        setPagination(result.pagination);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.message || "Unable to load income records.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchIncome]);
 
   useEffect(() => {
     let cancelled = false;

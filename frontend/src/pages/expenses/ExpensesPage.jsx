@@ -258,10 +258,7 @@ export default function ExpensesPage() {
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
 
-  const loadExpenses = useCallback(async () => {
-    setIsLoading(true);
-    setError("");
-
+    const fetchExpenses = useCallback(async () => {
     const params = new URLSearchParams({
       page: String(page),
       limit: "10",
@@ -270,23 +267,53 @@ export default function ExpensesPage() {
     if (search) params.set("search", search);
     if (paymentMethod) params.set("paymentMethod", paymentMethod);
 
-    try {
-      const result = await apiRequest(`/expenses?${params.toString()}`, {
-        method: "GET",
-      });
+    const result = await apiRequest(`/expenses?${params.toString()}`, {
+      method: "GET",
+    });
 
-      setExpenses(result.data.expenses);
-      setPagination(result.data.pagination);
+    return {
+      expenses: result.data.expenses,
+      pagination: result.data.pagination,
+    };
+  }, [page, search, paymentMethod]);
+
+  const loadExpenses = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const result = await fetchExpenses();
+      setExpenses(result.expenses);
+      setPagination(result.pagination);
     } catch (err) {
       setError(err.message || "Unable to load expenses.");
     } finally {
       setIsLoading(false);
     }
-  }, [page, search, paymentMethod]);
+  }, [fetchExpenses]);
 
   useEffect(() => {
-    loadExpenses();
-  }, [loadExpenses]);
+    let cancelled = false;
+
+    fetchExpenses()
+      .then((result) => {
+        if (cancelled) return;
+        setExpenses(result.expenses);
+        setPagination(result.pagination);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.message || "Unable to load expenses.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchExpenses]);
 
   useEffect(() => {
     let cancelled = false;

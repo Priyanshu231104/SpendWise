@@ -70,7 +70,6 @@ budgetSchema.pre("validate", function () {
   }
 });
 
-
 budgetSchema.index(
   { userId: 1, periodStart: 1 },
   {

@@ -395,20 +395,27 @@ function CategoryDonut({ data }) {
   const total = totalsByCurrency.get(currencies[0]) || 0;
   const radius = 70;
   const circumference = 2 * Math.PI * radius;
-  let accumulated = 0;
 
   const segments = data
-    .filter((item) => Number(item.totalSpentMinor) > 0)
-    .slice(0, 10)
-    .map((item, index) => {
-      const value = Number(item.totalSpentMinor) || 0;
-      const length = total > 0 ? (value / total) * circumference : 0;
-      const segment = {
+  .filter((item) => Number(item.totalSpentMinor) > 0)
+  .slice(0, 10)
+  .reduce((result, item, index) => {
+    const value = Number(item.totalSpentMinor) || 0;
+    const length = total > 0 ? (value / total) * circumference : 0;
+    const offset =
+      result.length > 0
+        ? result[result.length - 1].offset +
+          result[result.length - 1].length
+        : 0;
+
+    return [
+      ...result,
+      {
         ...item,
         value,
         index,
         length,
-        offset: accumulated,
+        offset,
         color: item.color || [
           "#0BB079",
           "#4263EB",
@@ -421,10 +428,9 @@ function CategoryDonut({ data }) {
           "#84CC16",
           "#06B6D4",
         ][index % 10],
-      };
-      accumulated += length;
-      return segment;
-    });
+      },
+    ];
+  }, []);
 
   const selected = segments[selectedIndex] || segments[0];
 
@@ -565,7 +571,6 @@ function SavingsTrend({ data }) {
   const plotHeight = height - top - bottom;
 
   const values = rows.map((item) => Number(item.netSavingsMinor) || 0);
-  const maxAbs = Math.max(1, ...values.map(Math.abs));
   const minValue = Math.min(0, ...values);
   const maxValue = Math.max(0, ...values);
   const spread = Math.max(1, maxValue - minValue);
@@ -867,8 +872,6 @@ export default function Reports() {
   useEffect(() => {
     let cancelled = false;
 
-    setLoading(true);
-
     getReportsData(range)
       .then((result) => {
         if (cancelled) return;
@@ -901,6 +904,7 @@ export default function Reports() {
   function selectPreset(value) {
     const nextRange = getPresetRange(value);
     setError("");
+    setLoading(true);
     setPreset(value);
     setRange(nextRange);
     setDraftRange(nextRange);
@@ -920,6 +924,7 @@ export default function Reports() {
     }
 
     setError("");
+    setLoading(true);
     setPreset("custom");
     setRange({ ...draftRange });
   }

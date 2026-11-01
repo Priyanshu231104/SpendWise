@@ -10,24 +10,16 @@ import {
 
 const router = express.Router();
 
+// Budget alerts
 router.get("/budget-alerts", authenticate, getBudgetAlerts);
 
-router.get(
-  "/spending-comparison",
-  authenticate,
-  getSpendingComparison
-);
+// Spending comparison
+router.get("/spending-comparison", authenticate, getSpendingComparison);
 
-router.get(
-  "/savings-rate",
-  authenticate,
-  getSavingsRateInsights
-);
+// Savings rate insights
+router.get("/savings-rate", authenticate, getSavingsRateInsights);
 
-router.get(
-  "/financial-health",
-  authenticate,
-  getFinancialHealthSummary
-);
+// Financial health summary
+router.get("/financial-health", authenticate, getFinancialHealthSummary);
 
 export default router;

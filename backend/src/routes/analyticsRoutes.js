@@ -9,22 +9,13 @@ import {
 
 const router = express.Router();
 
-router.get(
-  "/monthly-trends",
-  authenticate,
-  getMonthlyTrends
-);
+// Monthly transaction trends
+router.get("/monthly-trends", authenticate, getMonthlyTrends);
 
-router.get(
-  "/spending-distribution",
-  authenticate,
-  getSpendingDistribution
-);
+// Spending distribution by category
+router.get("/spending-distribution", authenticate, getSpendingDistribution);
 
-router.get(
-  "/savings-trend",
-  authenticate,
-  getSavingsTrend
-);
+// Savings trend
+router.get("/savings-trend", authenticate, getSavingsTrend);
 
 export default router;

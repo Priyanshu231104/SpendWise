@@ -2,7 +2,49 @@
 import mongoose from "mongoose";
 import FinancialGoal from "../models/FinancialGoal.js";
 
-const isValidObjectId = (id) => mongoose.isValidObjectId(id);
+const GOAL_STATUSES = [
+  "ACTIVE",
+  "COMPLETED",
+  "CANCELLED",
+];
+
+const ALLOWED_CREATE_FIELDS = [
+  "name",
+  "targetAmountMinor",
+  "savedAmountMinor",
+  "currency",
+  "targetDate",
+];
+
+const ALLOWED_UPDATE_FIELDS = [
+  ...ALLOWED_CREATE_FIELDS,
+  "status",
+];
+
+// --------------------------------------------------
+// SHARED VALIDATION HELPERS
+// --------------------------------------------------
+
+const isValidRequestBody = (body) => {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  );
+};
+
+const isValidObjectId = (id) => {
+  return (
+    typeof id === "string" &&
+    /^[a-fA-F0-9]{24}$/.test(id)
+  );
+};
+
+const getUnknownFields = (body, allowedFields) => {
+  return Object.keys(body).filter(
+    (field) => !allowedFields.includes(field)
+  );
+};
 
 const parseOptionalDate = (value) => {
   if (value === null || value === "") {
@@ -13,7 +55,43 @@ const parseOptionalDate = (value) => {
     return undefined;
   }
 
-  const date = new Date(value);
+  const normalized = value.trim();
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  // Strictly validate YYYY-MM-DD dates.
+  const dateOnlyMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+
+    const date = new Date(
+      Date.UTC(year, month - 1, day)
+    );
+
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return undefined;
+    }
+
+    return date;
+  }
+
+  // Accept ISO-style datetime strings.
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(normalized)) {
+    return undefined;
+  }
+
+  const date = new Date(normalized);
 
   if (Number.isNaN(date.getTime())) {
     return undefined;
@@ -31,13 +109,51 @@ const serializeGoal = (goal) => {
     progressPercentage: Number(
       ((savedAmountMinor / targetAmountMinor) * 100).toFixed(2)
     ),
-    remainingAmountMinor: targetAmountMinor - savedAmountMinor,
+    remainingAmountMinor:
+      targetAmountMinor - savedAmountMinor,
   };
 };
 
+const sendValidationError = (res, error) => {
+  if (
+    error instanceof mongoose.Error.ValidationError ||
+    error instanceof mongoose.Error.CastError
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid financial goal data.",
+    });
+  }
+
+  return null;
+};
+
+// --------------------------------------------------
+// CREATE FINANCIAL GOAL
+// --------------------------------------------------
 
 export const createFinancialGoal = async (req, res) => {
   try {
+    if (!isValidRequestBody(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a JSON object.",
+      });
+    }
+
+    const unknownFields = getUnknownFields(
+      req.body,
+      ALLOWED_CREATE_FIELDS
+    );
+
+    if (unknownFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more fields cannot be provided.",
+        fields: unknownFields,
+      });
+    }
+
     const {
       name,
       targetAmountMinor,
@@ -46,6 +162,7 @@ export const createFinancialGoal = async (req, res) => {
       targetDate = null,
     } = req.body;
 
+    // Validate goal name.
     if (
       typeof name !== "string" ||
       name.trim().length < 2 ||
@@ -57,16 +174,19 @@ export const createFinancialGoal = async (req, res) => {
       });
     }
 
+    // Validate target amount.
     if (
       !Number.isSafeInteger(targetAmountMinor) ||
       targetAmountMinor < 1
     ) {
       return res.status(400).json({
         success: false,
-        message: "Target amount must be a positive safe integer in minor currency units.",
+        message:
+          "Target amount must be a positive safe integer in minor currency units.",
       });
     }
 
+    // Validate saved amount.
     if (
       !Number.isSafeInteger(savedAmountMinor) ||
       savedAmountMinor < 0 ||
@@ -74,10 +194,12 @@ export const createFinancialGoal = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Saved amount must be a non-negative safe integer and cannot exceed the target.",
+        message:
+          "Saved amount must be a non-negative safe integer and cannot exceed the target.",
       });
     }
 
+    // Validate currency.
     if (
       typeof currency !== "string" ||
       !/^[A-Z]{3}$/.test(currency.trim().toUpperCase())
@@ -88,9 +210,10 @@ export const createFinancialGoal = async (req, res) => {
       });
     }
 
+    // Validate optional target date.
     const parsedTargetDate = parseOptionalDate(targetDate);
 
-    if (targetDate !== null && parsedTargetDate === undefined) {
+    if (parsedTargetDate === undefined) {
       return res.status(400).json({
         success: false,
         message: "Target date must be a valid date or null.",
@@ -116,11 +239,13 @@ export const createFinancialGoal = async (req, res) => {
       data: serializeGoal(goal.toObject()),
     });
   } catch (error) {
-    if (error.name === "ValidationError" || error.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid financial goal data.",
-      });
+    const validationResponse = sendValidationError(
+      res,
+      error
+    );
+
+    if (validationResponse) {
+      return validationResponse;
     }
 
     console.error("Create financial goal error:", error);
@@ -132,14 +257,21 @@ export const createFinancialGoal = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET ALL FINANCIAL GOALS
+// --------------------------------------------------
 
 export const getFinancialGoals = async (req, res) => {
   try {
     const { status } = req.query;
 
-    const allowedStatuses = ["ACTIVE", "COMPLETED", "CANCELLED"];
-
-    if (status && !allowedStatuses.includes(status)) {
+    if (
+      status !== undefined &&
+      (
+        typeof status !== "string" ||
+        !GOAL_STATUSES.includes(status)
+      )
+    ) {
       return res.status(400).json({
         success: false,
         message: "Invalid status filter.",
@@ -150,7 +282,7 @@ export const getFinancialGoals = async (req, res) => {
       userId: req.user.id,
     };
 
-    if (status) {
+    if (status !== undefined) {
       filter.status = status;
     }
 
@@ -173,6 +305,9 @@ export const getFinancialGoals = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET FINANCIAL GOAL BY ID
+// --------------------------------------------------
 
 export const getFinancialGoalById = async (req, res) => {
   try {
@@ -211,6 +346,9 @@ export const getFinancialGoalById = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// UPDATE FINANCIAL GOAL
+// --------------------------------------------------
 
 export const updateFinancialGoal = async (req, res) => {
   try {
@@ -223,16 +361,13 @@ export const updateFinancialGoal = async (req, res) => {
       });
     }
 
-    const allowedFields = [
-      "name",
-      "targetAmountMinor",
-      "savedAmountMinor",
-      "currency",
-      "targetDate",
-      "status",
-    ];
+    if (!isValidRequestBody(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a JSON object.",
+      });
+    }
 
-    const updates = {};
     const suppliedFields = Object.keys(req.body);
 
     if (suppliedFields.length === 0) {
@@ -242,8 +377,9 @@ export const updateFinancialGoal = async (req, res) => {
       });
     }
 
-    const invalidFields = suppliedFields.filter(
-      (field) => !allowedFields.includes(field)
+    const invalidFields = getUnknownFields(
+      req.body,
+      ALLOWED_UPDATE_FIELDS
     );
 
     if (invalidFields.length > 0) {
@@ -254,6 +390,7 @@ export const updateFinancialGoal = async (req, res) => {
       });
     }
 
+    // Only retrieve the authenticated user's goal.
     const currentGoal = await FinancialGoal.findOne({
       _id: id,
       userId: req.user.id,
@@ -266,6 +403,9 @@ export const updateFinancialGoal = async (req, res) => {
       });
     }
 
+    const updates = {};
+
+    // Validate name.
     if (req.body.name !== undefined) {
       if (
         typeof req.body.name !== "string" ||
@@ -281,6 +421,7 @@ export const updateFinancialGoal = async (req, res) => {
       updates.name = req.body.name.trim();
     }
 
+    // Validate target amount.
     if (req.body.targetAmountMinor !== undefined) {
       if (
         !Number.isSafeInteger(req.body.targetAmountMinor) ||
@@ -292,9 +433,11 @@ export const updateFinancialGoal = async (req, res) => {
         });
       }
 
-      updates.targetAmountMinor = req.body.targetAmountMinor;
+      updates.targetAmountMinor =
+        req.body.targetAmountMinor;
     }
 
+    // Validate saved amount.
     if (req.body.savedAmountMinor !== undefined) {
       if (
         !Number.isSafeInteger(req.body.savedAmountMinor) ||
@@ -306,13 +449,17 @@ export const updateFinancialGoal = async (req, res) => {
         });
       }
 
-      updates.savedAmountMinor = req.body.savedAmountMinor;
+      updates.savedAmountMinor =
+        req.body.savedAmountMinor;
     }
 
+    // Validate currency.
     if (req.body.currency !== undefined) {
       if (
         typeof req.body.currency !== "string" ||
-        !/^[A-Z]{3}$/.test(req.body.currency.trim().toUpperCase())
+        !/^[A-Z]{3}$/.test(
+          req.body.currency.trim().toUpperCase()
+        )
       ) {
         return res.status(400).json({
           success: false,
@@ -320,11 +467,15 @@ export const updateFinancialGoal = async (req, res) => {
         });
       }
 
-      updates.currency = req.body.currency.trim().toUpperCase();
+      updates.currency =
+        req.body.currency.trim().toUpperCase();
     }
 
+    // Validate optional target date.
     if (req.body.targetDate !== undefined) {
-      const parsedDate = parseOptionalDate(req.body.targetDate);
+      const parsedDate = parseOptionalDate(
+        req.body.targetDate
+      );
 
       if (parsedDate === undefined) {
         return res.status(400).json({
@@ -336,10 +487,9 @@ export const updateFinancialGoal = async (req, res) => {
       updates.targetDate = parsedDate;
     }
 
+    // Validate status.
     if (req.body.status !== undefined) {
-      if (
-        !["ACTIVE", "COMPLETED", "CANCELLED"].includes(req.body.status)
-      ) {
+      if (!GOAL_STATUSES.includes(req.body.status)) {
         return res.status(400).json({
           success: false,
           message: "Invalid financial goal status.",
@@ -349,11 +499,14 @@ export const updateFinancialGoal = async (req, res) => {
       updates.status = req.body.status;
     }
 
+    // Validate the combined target and saved amounts.
     const targetAmountMinor =
-      updates.targetAmountMinor ?? currentGoal.targetAmountMinor;
+      updates.targetAmountMinor ??
+      currentGoal.targetAmountMinor;
 
     const savedAmountMinor =
-      updates.savedAmountMinor ?? currentGoal.savedAmountMinor;
+      updates.savedAmountMinor ??
+      currentGoal.savedAmountMinor;
 
     if (savedAmountMinor > targetAmountMinor) {
       return res.status(400).json({
@@ -362,13 +515,21 @@ export const updateFinancialGoal = async (req, res) => {
       });
     }
 
-    if (updates.status === undefined) {
-      updates.status =
-        savedAmountMinor === targetAmountMinor
-          ? "COMPLETED"
-          : currentGoal.status === "COMPLETED"
-            ? "ACTIVE"
-            : currentGoal.status;
+    // Keep completion status consistent with the amounts.
+    if (updates.status === "COMPLETED") {
+      if (savedAmountMinor !== targetAmountMinor) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "A goal can only be completed when its saved amount reaches its target.",
+        });
+      }
+    } else if (updates.status === undefined) {
+      if (savedAmountMinor === targetAmountMinor) {
+        updates.status = "COMPLETED";
+      } else if (currentGoal.status === "COMPLETED") {
+        updates.status = "ACTIVE";
+      }
     }
 
     currentGoal.set(updates);
@@ -381,11 +542,13 @@ export const updateFinancialGoal = async (req, res) => {
       data: serializeGoal(currentGoal.toObject()),
     });
   } catch (error) {
-    if (error.name === "ValidationError" || error.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid financial goal data.",
-      });
+    const validationResponse = sendValidationError(
+      res,
+      error
+    );
+
+    if (validationResponse) {
+      return validationResponse;
     }
 
     console.error("Update financial goal error:", error);
@@ -397,6 +560,9 @@ export const updateFinancialGoal = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// DELETE FINANCIAL GOAL
+// --------------------------------------------------
 
 export const deleteFinancialGoal = async (req, res) => {
   try {

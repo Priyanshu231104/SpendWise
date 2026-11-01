@@ -3,9 +3,84 @@ import mongoose from "mongoose";
 import Budget from "../models/Budget.js";
 import Transaction from "../models/Transaction.js";
 
+/**
+ * Converts the authenticated user's ID into a MongoDB ObjectId.
+ * Returns null if the ID is missing or invalid.
+ */
+const getAuthenticatedUserId = (req) => {
+  const userId = req.user?.id;
+
+  if (!userId || !mongoose.isValidObjectId(userId)) {
+    return null;
+  }
+
+  return new mongoose.Types.ObjectId(userId);
+};
+
+/**
+ * Returns a percentage rounded to two decimal places.
+ * Returns null when the denominator is zero or the result is invalid.
+ */
+const calculatePercentage = (numerator, denominator) => {
+  if (
+    !Number.isFinite(numerator) ||
+    !Number.isFinite(denominator) ||
+    denominator <= 0
+  ) {
+    return null;
+  }
+
+  const percentage = (numerator / denominator) * 100;
+
+  return Number.isFinite(percentage)
+    ? Number(percentage.toFixed(2))
+    : null;
+};
+
+/**
+ * Gets the UTC start of the current month and the next month.
+ */
+const getCurrentMonthRange = () => {
+  const now = new Date();
+
+  const monthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+  );
+
+  const nextMonthStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
+  );
+
+  return {
+    now,
+    monthStart,
+    nextMonthStart,
+  };
+};
+
+/**
+ * Returns an authentication error when the user ID is invalid.
+ */
+const sendUnauthorized = (res) => {
+  return res.status(401).json({
+    success: false,
+    message: "Unauthorized. Please log in again.",
+  });
+};
+
+/**
+ * GET BUDGET ALERTS
+ *
+ * Returns current budget usage and alert status.
+ */
 export const getBudgetAlerts = async (req, res) => {
   try {
-    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const userId = getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return sendUnauthorized(res);
+    }
+
     const now = new Date();
 
     const budgets = await Budget.find({
@@ -31,7 +106,9 @@ export const getBudgetAlerts = async (req, res) => {
         }
 
         const [result] = await Transaction.aggregate([
-          { $match: match },
+          {
+            $match: match,
+          },
           {
             $group: {
               _id: null,
@@ -42,17 +119,23 @@ export const getBudgetAlerts = async (req, res) => {
         ]);
 
         const spentMinor = result?.spentMinor ?? 0;
+        const transactionCount = result?.transactionCount ?? 0;
+
         const remainingMinor = budget.amountMinor - spentMinor;
-        const percentageUsed = Number(
-          ((spentMinor / budget.amountMinor) * 100).toFixed(2)
+
+        const percentageUsed = calculatePercentage(
+          spentMinor,
+          budget.amountMinor
         );
 
         let status = "ON_TRACK";
 
-        if (percentageUsed >= 100) {
-          status = "EXCEEDED";
-        } else if (percentageUsed >= 80) {
-          status = "WARNING";
+        if (percentageUsed !== null) {
+          if (percentageUsed >= 100) {
+            status = "EXCEEDED";
+          } else if (percentageUsed >= 80) {
+            status = "WARNING";
+          }
         }
 
         return {
@@ -62,8 +145,8 @@ export const getBudgetAlerts = async (req, res) => {
           budgetAmountMinor: budget.amountMinor,
           spentMinor,
           remainingMinor,
-          percentageUsed,
-          transactionCount: result?.transactionCount ?? 0,
+          percentageUsed: percentageUsed ?? 0,
+          transactionCount,
           status,
         };
       })
@@ -85,9 +168,20 @@ export const getBudgetAlerts = async (req, res) => {
   }
 };
 
-
+/**
+ * GET SPENDING COMPARISON
+ *
+ * Compares expenses in the current month with the previous month.
+ * Results are grouped by currency.
+ */
 export const getSpendingComparison = async (req, res) => {
   try {
+    const userId = getAuthenticatedUserId(req);
+
+    if (!userId) {
+      return sendUnauthorized(res);
+    }
+
     const now = new Date();
 
     const currentStart = new Date(
@@ -101,8 +195,6 @@ export const getSpendingComparison = async (req, res) => {
     const previousStart = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1)
     );
-
-    const userId = new mongoose.Types.ObjectId(req.user.id);
 
     const results = await Transaction.aggregate([
       {
@@ -164,17 +256,10 @@ export const getSpendingComparison = async (req, res) => {
         entry.currentMonthExpensesMinor -
         entry.previousMonthExpensesMinor;
 
-      let percentageChange = null;
-
-      if (entry.previousMonthExpensesMinor > 0) {
-        percentageChange = Number(
-          (
-            (differenceMinor /
-              entry.previousMonthExpensesMinor) *
-            100
-          ).toFixed(2)
-        );
-      }
+      const percentageChange = calculatePercentage(
+        differenceMinor,
+        entry.previousMonthExpensesMinor
+      );
 
       let trend = "UNCHANGED";
 
@@ -216,20 +301,21 @@ export const getSpendingComparison = async (req, res) => {
   }
 };
 
-
+/**
+ * GET SAVINGS RATE INSIGHTS
+ *
+ * Calculates income, expenses, net savings, and savings rate
+ * for the current month, grouped by currency.
+ */
 export const getSavingsRateInsights = async (req, res) => {
   try {
-    const now = new Date();
+    const userId = getAuthenticatedUserId(req);
 
-    const monthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
-    );
+    if (!userId) {
+      return sendUnauthorized(res);
+    }
 
-    const nextMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
-    );
-
-    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const { monthStart, nextMonthStart } = getCurrentMonthRange();
 
     const results = await Transaction.aggregate([
       {
@@ -285,9 +371,7 @@ export const getSavingsRateInsights = async (req, res) => {
 
       const savingsRatePercentage =
         entry.incomeMinor > 0
-          ? Number(
-              ((netSavingsMinor / entry.incomeMinor) * 100).toFixed(2)
-            )
+          ? calculatePercentage(netSavingsMinor, entry.incomeMinor)
           : null;
 
       return {
@@ -320,20 +404,20 @@ export const getSavingsRateInsights = async (req, res) => {
   }
 };
 
-
+/**
+ * GET FINANCIAL HEALTH SUMMARY
+ *
+ * Provides a summary of the user's current-month financial activity.
+ */
 export const getFinancialHealthSummary = async (req, res) => {
   try {
-    const now = new Date();
+    const userId = getAuthenticatedUserId(req);
 
-    const monthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
-    );
+    if (!userId) {
+      return sendUnauthorized(res);
+    }
 
-    const nextMonthStart = new Date(
-      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)
-    );
-
-    const userId = new mongoose.Types.ObjectId(req.user.id);
+    const { monthStart, nextMonthStart } = getCurrentMonthRange();
 
     const results = await Transaction.aggregate([
       {
@@ -384,9 +468,7 @@ export const getFinancialHealthSummary = async (req, res) => {
 
       const savingsRatePercentage =
         entry.incomeMinor > 0
-          ? Number(
-              ((netSavingsMinor / entry.incomeMinor) * 100).toFixed(2)
-            )
+          ? calculatePercentage(netSavingsMinor, entry.incomeMinor)
           : null;
 
       const observations = [];

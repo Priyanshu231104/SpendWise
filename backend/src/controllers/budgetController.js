@@ -3,15 +3,88 @@ import mongoose from "mongoose";
 import Budget from "../models/Budget.js";
 import Category from "../models/Category.js";
 
-const isValidCurrency = (currency) =>
-  typeof currency === "string" && /^[A-Z]{3}$/.test(currency);
+const ALLOWED_BUDGET_FIELDS = [
+  "name",
+  "amountMinor",
+  "currency",
+  "periodStart",
+  "periodEnd",
+  "categoryId",
+];
 
-const parseDate = (value) => {
+const OBJECT_ID_REGEX = /^[a-fA-F0-9]{24}$/;
+
+// --------------------------------------------------
+// SHARED VALIDATION HELPERS
+// --------------------------------------------------
+
+const isValidRequestBody = (body) => {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  );
+};
+
+const isValidObjectId = (value) => {
+  return (
+    typeof value === "string" &&
+    OBJECT_ID_REGEX.test(value)
+  );
+};
+
+const isValidCurrency = (currency) => {
+  return (
+    typeof currency === "string" &&
+    /^[A-Z]{3}$/.test(currency)
+  );
+};
+
+const parseDate = (value, endOfDay = false) => {
   if (typeof value !== "string" || value.trim() === "") {
     return null;
   }
 
-  const date = new Date(value);
+  const normalized = value.trim();
+
+  // Strictly validate YYYY-MM-DD date-only values.
+  const dateOnlyMatch = normalized.match(
+    /^(\d{4})-(\d{2})-(\d{2})$/
+  );
+
+  if (dateOnlyMatch) {
+    const year = Number(dateOnlyMatch[1]);
+    const month = Number(dateOnlyMatch[2]);
+    const day = Number(dateOnlyMatch[3]);
+
+    const date = new Date(
+      Date.UTC(year, month - 1, day)
+    );
+
+    // Reject impossible calendar dates.
+    if (
+      date.getUTCFullYear() !== year ||
+      date.getUTCMonth() !== month - 1 ||
+      date.getUTCDate() !== day
+    ) {
+      return null;
+    }
+
+    if (endOfDay) {
+      date.setUTCHours(23, 59, 59, 999);
+    }
+
+    return date;
+  }
+
+  // Accept ISO-style datetime strings.
+  const isDateTime = /^\d{4}-\d{2}-\d{2}T/.test(normalized);
+
+  if (!isDateTime) {
+    return null;
+  }
+
+  const date = new Date(normalized);
 
   if (Number.isNaN(date.getTime())) {
     return null;
@@ -20,8 +93,103 @@ const parseDate = (value) => {
   return date;
 };
 
+const getUnknownFields = (body) => {
+  return Object.keys(body).filter(
+    (field) => !ALLOWED_BUDGET_FIELDS.includes(field)
+  );
+};
+
+const sendBudgetValidationError = (res, error) => {
+  if (
+    error instanceof mongoose.Error.ValidationError
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Budget validation failed",
+      errors: Object.values(error.errors).map(
+        (item) => item.message
+      ),
+    });
+  }
+
+  if (error instanceof mongoose.Error.CastError) {
+    return res.status(400).json({
+      success: false,
+      message: "Budget data is invalid",
+    });
+  }
+
+  return null;
+};
+
+const sendDuplicateBudgetError = (res, error) => {
+  if (error?.code === 11000) {
+    return res.status(409).json({
+      success: false,
+      message: "A budget already exists for this period and scope",
+    });
+  }
+
+  return null;
+};
+
+const validateCategory = async (categoryId, userId) => {
+  if (categoryId === null) {
+    return {
+      valid: true,
+      categoryId: null,
+    };
+  }
+
+  if (!isValidObjectId(categoryId)) {
+    return {
+      valid: false,
+      message: "Invalid categoryId",
+    };
+  }
+
+  const category = await Category.findOne({
+    _id: categoryId,
+    userId,
+    type: "EXPENSE",
+    isArchived: false,
+  });
+
+  if (!category) {
+    return {
+      valid: false,
+      message: "Active expense category not found for this user",
+    };
+  }
+
+  return {
+    valid: true,
+    categoryId: category._id,
+  };
+};
+
+// --------------------------------------------------
+// CREATE BUDGET
+// --------------------------------------------------
+
 export const createBudget = async (req, res) => {
   try {
+    if (!isValidRequestBody(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a JSON object",
+      });
+    }
+
+    const unknownFields = getUnknownFields(req.body);
+
+    if (unknownFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Unknown field(s): ${unknownFields.join(", ")}`,
+      });
+    }
+
     const {
       name = "",
       amountMinor,
@@ -31,39 +199,7 @@ export const createBudget = async (req, res) => {
       categoryId = null,
     } = req.body;
 
-    // Validate the request body.
-    if (
-      !req.body ||
-      typeof req.body !== "object" ||
-      Array.isArray(req.body)
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Request body must be a JSON object",
-      });
-    }
-
-    const allowedFields = [
-      "name",
-      "amountMinor",
-      "currency",
-      "periodStart",
-      "periodEnd",
-      "categoryId",
-    ];
-
-    const unknownFields = Object.keys(req.body).filter(
-      (field) => !allowedFields.includes(field)
-    );
-
-    if (unknownFields.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: `Unknown field(s): ${unknownFields.join(", ")}`,
-      });
-    }
-
-    // Validate the budget name.
+    // Validate budget name.
     if (
       typeof name !== "string" ||
       name.trim().length > 100
@@ -74,7 +210,7 @@ export const createBudget = async (req, res) => {
       });
     }
 
-    // Validate the amount in minor currency units.
+    // Validate amount in minor currency units.
     if (
       !Number.isSafeInteger(amountMinor) ||
       amountMinor <= 0
@@ -85,7 +221,7 @@ export const createBudget = async (req, res) => {
       });
     }
 
-    // Require an uppercase three-letter currency code.
+    // Currency must be an uppercase three-letter code.
     if (!isValidCurrency(currency)) {
       return res.status(400).json({
         success: false,
@@ -93,7 +229,7 @@ export const createBudget = async (req, res) => {
       });
     }
 
-    // Validate the budget period.
+    // Validate budget period.
     const start = parseDate(periodStart);
     const end = parseDate(periodEnd);
 
@@ -111,44 +247,19 @@ export const createBudget = async (req, res) => {
       });
     }
 
-    // Validate an optional category.
-    let normalizedCategoryId = null;
+    // Validate optional expense category.
+    const categoryResult = await validateCategory(
+      categoryId,
+      req.user.id
+    );
 
-    if (categoryId !== null) {
-      if (
-        typeof categoryId !== "string" ||
-        !mongoose.isValidObjectId(categoryId)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid categoryId",
-        });
-      }
-
-      const category = await Category.findOne({
-        _id: categoryId,
-        userId: req.user.id,
-        isArchived: false,
+    if (!categoryResult.valid) {
+      return res.status(400).json({
+        success: false,
+        message: categoryResult.message,
       });
-
-      if (!category) {
-        return res.status(400).json({
-          success: false,
-          message: "Category not found, not owned by you, or archived",
-        });
-      }
-
-      if (category.type !== "EXPENSE") {
-        return res.status(400).json({
-          success: false,
-          message: "Budgets can only be associated with expense categories",
-        });
-      }
-
-      normalizedCategoryId = category._id;
     }
 
-    // Create the budget using the authenticated user's ID.
     const budget = await Budget.create({
       userId: req.user.id,
       name: name.trim(),
@@ -156,7 +267,7 @@ export const createBudget = async (req, res) => {
       currency,
       periodStart: start,
       periodEnd: end,
-      categoryId: normalizedCategoryId,
+      categoryId: categoryResult.categoryId,
     });
 
     return res.status(201).json({
@@ -165,22 +276,22 @@ export const createBudget = async (req, res) => {
       data: budget,
     });
   } catch (error) {
-    // Handle duplicate-budget unique-index violations.
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "A budget already exists for this period and scope",
-      });
+    const duplicateResponse = sendDuplicateBudgetError(
+      res,
+      error
+    );
+
+    if (duplicateResponse) {
+      return duplicateResponse;
     }
 
-    if (error instanceof mongoose.Error.ValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: "Budget validation failed",
-        errors: Object.values(error.errors).map(
-          (item) => item.message
-        ),
-      });
+    const validationResponse = sendBudgetValidationError(
+      res,
+      error
+    );
+
+    if (validationResponse) {
+      return validationResponse;
     }
 
     console.error("Create budget error:", error);
@@ -192,20 +303,41 @@ export const createBudget = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET ALL BUDGETS
+// --------------------------------------------------
 
 export const getBudgets = async (req, res) => {
   try {
-    const { page = "1", limit = "10", categoryId, overall, from, to } =
-      req.query;
+    const {
+      page = "1",
+      limit = "10",
+      categoryId,
+      overall,
+      from,
+      to,
+    } = req.query;
 
-    // Validate pagination.
+    // Strict pagination validation.
+    if (
+      typeof page !== "string" ||
+      !/^\d+$/.test(page) ||
+      typeof limit !== "string" ||
+      !/^\d+$/.test(limit)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "page and limit must be positive integers",
+      });
+    }
+
     const pageNumber = Number(page);
     const limitNumber = Number(limit);
 
     if (
-      !Number.isInteger(pageNumber) ||
+      !Number.isSafeInteger(pageNumber) ||
       pageNumber < 1 ||
-      !Number.isInteger(limitNumber) ||
+      !Number.isSafeInteger(limitNumber) ||
       limitNumber < 1 ||
       limitNumber > 100
     ) {
@@ -215,8 +347,20 @@ export const getBudgets = async (req, res) => {
       });
     }
 
-    // Validate mutually exclusive category filters.
-    if (categoryId !== undefined && overall !== undefined) {
+    const skip = (pageNumber - 1) * limitNumber;
+
+    if (!Number.isSafeInteger(skip)) {
+      return res.status(400).json({
+        success: false,
+        message: "Requested page is too large",
+      });
+    }
+
+    // Category and overall filters are mutually exclusive.
+    if (
+      categoryId !== undefined &&
+      overall !== undefined
+    ) {
       return res.status(400).json({
         success: false,
         message: "Use either categoryId or overall, not both",
@@ -227,8 +371,12 @@ export const getBudgets = async (req, res) => {
       userId: req.user.id,
     };
 
+    // Filter overall or category-specific budgets.
     if (overall !== undefined) {
-      if (overall !== "true" && overall !== "false") {
+      if (
+        typeof overall !== "string" ||
+        (overall !== "true" && overall !== "false")
+      ) {
         return res.status(400).json({
           success: false,
           message: "overall must be true or false",
@@ -238,30 +386,38 @@ export const getBudgets = async (req, res) => {
       if (overall === "true") {
         filter.categoryId = null;
       } else {
-        filter.categoryId = { $ne: null };
+        filter.categoryId = {
+          $type: "objectId",
+        };
       }
     }
 
+    // Filter by category.
     if (categoryId !== undefined) {
-      if (
-        typeof categoryId !== "string" ||
-        !mongoose.isValidObjectId(categoryId)
-      ) {
+      if (!isValidObjectId(categoryId)) {
         return res.status(400).json({
           success: false,
           message: "Invalid categoryId",
         });
       }
 
-      filter.categoryId = new mongoose.Types.ObjectId(categoryId);
+      filter.categoryId = new mongoose.Types.ObjectId(
+        categoryId
+      );
     }
 
-    // Filter budgets by period start date.
+    // Filter by budget start date.
     if (from !== undefined || to !== undefined) {
-      const start = from !== undefined ? parseDate(from) : null;
-      const end = to !== undefined ? parseDate(to) : null;
+      const start =
+        from !== undefined ? parseDate(from) : null;
 
-      if ((from !== undefined && !start) || (to !== undefined && !end)) {
+      const end =
+        to !== undefined ? parseDate(to, true) : null;
+
+      if (
+        (from !== undefined && !start) ||
+        (to !== undefined && !end)
+      ) {
         return res.status(400).json({
           success: false,
           message: "Invalid from or to date",
@@ -277,18 +433,25 @@ export const getBudgets = async (req, res) => {
 
       filter.periodStart = {};
 
-      if (start) filter.periodStart.$gte = start;
-      if (end) filter.periodStart.$lte = end;
-    }
+      if (start) {
+        filter.periodStart.$gte = start;
+      }
 
-    const skip = (pageNumber - 1) * limitNumber;
+      if (end) {
+        filter.periodStart.$lte = end;
+      }
+    }
 
     const [budgets, total] = await Promise.all([
       Budget.find(filter)
-        .sort({ periodStart: -1, createdAt: -1 })
+        .sort({
+          periodStart: -1,
+          createdAt: -1,
+        })
         .skip(skip)
         .limit(limitNumber)
         .lean(),
+
       Budget.countDocuments(filter),
     ]);
 
@@ -312,20 +475,21 @@ export const getBudgets = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET BUDGET BY ID
+// --------------------------------------------------
 
 export const getBudgetById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Validate the MongoDB ObjectId.
-    if (!mongoose.isValidObjectId(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid budget ID",
       });
     }
 
-    // Only retrieve budgets belonging to the authenticated user.
     const budget = await Budget.findOne({
       _id: id,
       userId: req.user.id,
@@ -352,37 +516,27 @@ export const getBudgetById = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// UPDATE BUDGET
+// --------------------------------------------------
 
 export const updateBudget = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.isValidObjectId(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid budget ID",
       });
     }
 
-    if (
-      !req.body ||
-      typeof req.body !== "object" ||
-      Array.isArray(req.body)
-    ) {
+    if (!isValidRequestBody(req.body)) {
       return res.status(400).json({
         success: false,
         message: "Request body must be a JSON object",
       });
     }
-
-    const allowedFields = [
-      "name",
-      "amountMinor",
-      "currency",
-      "periodStart",
-      "periodEnd",
-      "categoryId",
-    ];
 
     const fields = Object.keys(req.body);
 
@@ -393,9 +547,7 @@ export const updateBudget = async (req, res) => {
       });
     }
 
-    const unknownFields = fields.filter(
-      (field) => !allowedFields.includes(field)
-    );
+    const unknownFields = getUnknownFields(req.body);
 
     if (unknownFields.length > 0) {
       return res.status(400).json({
@@ -418,6 +570,7 @@ export const updateBudget = async (req, res) => {
 
     const updates = req.body;
 
+    // Validate and update name.
     if (updates.name !== undefined) {
       if (
         typeof updates.name !== "string" ||
@@ -432,6 +585,7 @@ export const updateBudget = async (req, res) => {
       budget.name = updates.name.trim();
     }
 
+    // Validate and update amount.
     if (updates.amountMinor !== undefined) {
       if (
         !Number.isSafeInteger(updates.amountMinor) ||
@@ -446,6 +600,7 @@ export const updateBudget = async (req, res) => {
       budget.amountMinor = updates.amountMinor;
     }
 
+    // Validate and update currency.
     if (updates.currency !== undefined) {
       if (!isValidCurrency(updates.currency)) {
         return res.status(400).json({
@@ -457,6 +612,7 @@ export const updateBudget = async (req, res) => {
       budget.currency = updates.currency;
     }
 
+    // Validate and update period start.
     if (updates.periodStart !== undefined) {
       const start = parseDate(updates.periodStart);
 
@@ -470,6 +626,7 @@ export const updateBudget = async (req, res) => {
       budget.periodStart = start;
     }
 
+    // Validate and update period end.
     if (updates.periodEnd !== undefined) {
       const end = parseDate(updates.periodEnd);
 
@@ -483,36 +640,31 @@ export const updateBudget = async (req, res) => {
       budget.periodEnd = end;
     }
 
+    // Validate the complete period after applying updates.
+    if (
+      budget.periodEnd <= budget.periodStart
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "periodEnd must be after periodStart",
+      });
+    }
+
+    // Update or remove category association.
     if (updates.categoryId !== undefined) {
-      if (updates.categoryId === null) {
-        budget.categoryId = null;
-      } else {
-        if (
-          typeof updates.categoryId !== "string" ||
-          !mongoose.isValidObjectId(updates.categoryId)
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: "Invalid categoryId",
-          });
-        }
+      const categoryResult = await validateCategory(
+        updates.categoryId,
+        req.user.id
+      );
 
-        const category = await Category.findOne({
-          _id: updates.categoryId,
-          userId: req.user.id,
-          isArchived: false,
-          type: "EXPENSE",
+      if (!categoryResult.valid) {
+        return res.status(400).json({
+          success: false,
+          message: categoryResult.message,
         });
-
-        if (!category) {
-          return res.status(400).json({
-            success: false,
-            message: "Active expense category not found for this user",
-          });
-        }
-
-        budget.categoryId = category._id;
       }
+
+      budget.categoryId = categoryResult.categoryId;
     }
 
     await budget.save();
@@ -523,21 +675,22 @@ export const updateBudget = async (req, res) => {
       data: budget,
     });
   } catch (error) {
-    if (error.code === 11000) {
-      return res.status(409).json({
-        success: false,
-        message: "A budget already exists for this period and scope",
-      });
+    const duplicateResponse = sendDuplicateBudgetError(
+      res,
+      error
+    );
+
+    if (duplicateResponse) {
+      return duplicateResponse;
     }
 
-    if (error instanceof mongoose.Error.ValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: "Budget validation failed",
-        errors: Object.values(error.errors).map(
-          (item) => item.message
-        ),
-      });
+    const validationResponse = sendBudgetValidationError(
+      res,
+      error
+    );
+
+    if (validationResponse) {
+      return validationResponse;
     }
 
     console.error("Update budget error:", error);
@@ -549,12 +702,15 @@ export const updateBudget = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// DELETE BUDGET
+// --------------------------------------------------
 
 export const deleteBudget = async (req, res) => {
   try {
     const { id } = req.params;
 
-    if (!mongoose.isValidObjectId(id)) {
+    if (!isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
         message: "Invalid budget ID",

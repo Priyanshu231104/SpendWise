@@ -1,5 +1,6 @@
 
 import mongoose from "mongoose";
+
 import Transaction from "../models/Transaction.js";
 import Category from "../models/Category.js";
 
@@ -11,8 +12,178 @@ const PAYMENT_METHODS = [
   "OTHER",
 ];
 
+const CREATE_FIELDS = [
+  "amountMinor",
+  "currency",
+  "categoryId",
+  "description",
+  "date",
+  "paymentMethod",
+];
+
+const UPDATE_FIELDS = CREATE_FIELDS;
+
+// --------------------------------------------------
+// SHARED VALIDATION HELPERS
+// --------------------------------------------------
+
+const isValidRequestBody = (body) => {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  );
+};
+
+const parseDate = (value) => {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  const normalized = value.trim();
+
+  // Strictly validate date-only values to avoid rollover dates.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    const parsed = new Date(`${normalized}T00:00:00.000Z`);
+
+    if (
+      Number.isNaN(parsed.getTime()) ||
+      parsed.toISOString().slice(0, 10) !== normalized
+    ) {
+      return null;
+    }
+
+    return parsed;
+  }
+
+  const parsed = new Date(normalized);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const normalizeCurrency = (currency) => {
+  if (
+    typeof currency !== "string" ||
+    !/^[A-Z]{3}$/i.test(currency.trim())
+  ) {
+    return null;
+  }
+
+  return currency.trim().toUpperCase();
+};
+
+const normalizePaymentMethod = (paymentMethod) => {
+  if (typeof paymentMethod !== "string") {
+    return null;
+  }
+
+  const normalized = paymentMethod.trim().toUpperCase();
+
+  return PAYMENT_METHODS.includes(normalized)
+    ? normalized
+    : null;
+};
+
+const hasUnknownFields = (body, allowedFields) => {
+  return Object.keys(body).filter(
+    (field) => !allowedFields.includes(field)
+  );
+};
+
+const isValidAmount = (amountMinor) => {
+  return (
+    Number.isSafeInteger(amountMinor) &&
+    amountMinor > 0
+  );
+};
+
+const escapeRegex = (value) => {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+};
+
+const handleValidationError = (error, res, action) => {
+  if (
+    error.name === "ValidationError" ||
+    error.name === "CastError"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Expense data is invalid",
+    });
+  }
+
+  console.error(`${action} error:`, error);
+
+  return res.status(500).json({
+    success: false,
+    message: `Unable to ${action.toLowerCase()}`,
+  });
+};
+
+const validateCategory = async (categoryId, userId) => {
+  if (categoryId === undefined || categoryId === null) {
+    return {
+      valid: true,
+      categoryId: null,
+    };
+  }
+
+  if (
+    typeof categoryId !== "string" ||
+    !mongoose.isValidObjectId(categoryId)
+  ) {
+    return {
+      valid: false,
+      categoryId: null,
+    };
+  }
+
+  const category = await Category.findOne({
+    _id: categoryId,
+    userId,
+    type: "EXPENSE",
+    isArchived: false,
+  }).select("_id");
+
+  if (!category) {
+    return {
+      valid: false,
+      categoryId: null,
+    };
+  }
+
+  return {
+    valid: true,
+    categoryId: category._id,
+  };
+};
+
+// --------------------------------------------------
+// CREATE EXPENSE
+// --------------------------------------------------
+
 export const createExpense = async (req, res) => {
   try {
+    if (!isValidRequestBody(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a JSON object",
+      });
+    }
+
+    const unknownFields = hasUnknownFields(
+      req.body,
+      CREATE_FIELDS
+    );
+
+    if (unknownFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more fields cannot be provided",
+        fields: unknownFields,
+      });
+    }
+
     const {
       amountMinor,
       currency,
@@ -22,48 +193,36 @@ export const createExpense = async (req, res) => {
       paymentMethod,
     } = req.body;
 
-    // Validate amount in minor currency units (paise for INR).
-    if (
-      !Number.isSafeInteger(amountMinor) ||
-      amountMinor <= 0
-    ) {
+    // Validate amount.
+    if (!isValidAmount(amountMinor)) {
       return res.status(400).json({
         success: false,
-        message: "Amount must be a positive safe integer in minor currency units",
+        message:
+          "Amount must be a positive safe integer in minor currency units",
       });
     }
 
-    // Validate and normalize currency.
-    if (
-      typeof currency !== "string" ||
-      !/^[A-Z]{3}$/i.test(currency.trim())
-    ) {
+    // Validate currency.
+    const normalizedCurrency = normalizeCurrency(currency);
+
+    if (!normalizedCurrency) {
       return res.status(400).json({
         success: false,
         message: "Currency must be a valid 3-letter currency code",
       });
     }
 
-    const normalizedCurrency = currency.trim().toUpperCase();
-
     // Validate date.
-    if (typeof date !== "string" || date.trim() === "") {
-      return res.status(400).json({
-        success: false,
-        message: "A valid expense date is required",
-      });
-    }
+    const expenseDate = parseDate(date);
 
-    const expenseDate = new Date(date);
-
-    if (Number.isNaN(expenseDate.getTime())) {
+    if (!expenseDate) {
       return res.status(400).json({
         success: false,
         message: "Expense date is invalid",
       });
     }
 
-    // Validate optional description.
+    // Validate description.
     if (
       description !== undefined &&
       (
@@ -73,7 +232,8 @@ export const createExpense = async (req, res) => {
     ) {
       return res.status(400).json({
         success: false,
-        message: "Description must be text with at most 500 characters",
+        message:
+          "Description must be text with at most 500 characters",
       });
     }
 
@@ -81,46 +241,26 @@ export const createExpense = async (req, res) => {
     const normalizedPaymentMethod =
       paymentMethod === undefined
         ? "OTHER"
-        : typeof paymentMethod === "string"
-          ? paymentMethod.trim().toUpperCase()
-          : "";
+        : normalizePaymentMethod(paymentMethod);
 
-    if (!PAYMENT_METHODS.includes(normalizedPaymentMethod)) {
+    if (!normalizedPaymentMethod) {
       return res.status(400).json({
         success: false,
         message: "Invalid payment method",
       });
     }
 
-    // Categories are optional until the Categories API is implemented.
-    let validatedCategoryId = null;
+    // Validate category ownership and type.
+    const categoryResult = await validateCategory(
+      categoryId,
+      req.user.id
+    );
 
-    if (categoryId !== undefined && categoryId !== null) {
-      if (
-        typeof categoryId !== "string" ||
-        !mongoose.isValidObjectId(categoryId)
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Category ID is invalid",
-        });
-      }
-
-      const category = await Category.findOne({
-        _id: categoryId,
-        userId: req.user.id,
-        type: "EXPENSE",
-        isArchived: false,
+    if (!categoryResult.valid) {
+      return res.status(400).json({
+        success: false,
+        message: "Expense category not found or unavailable",
       });
-
-      if (!category) {
-        return res.status(400).json({
-          success: false,
-          message: "Expense category not found or unavailable",
-        });
-      }
-
-      validatedCategoryId = category._id;
     }
 
     // Never accept userId or transaction type from the client.
@@ -129,7 +269,7 @@ export const createExpense = async (req, res) => {
       type: "EXPENSE",
       amountMinor,
       currency: normalizedCurrency,
-      categoryId: validatedCategoryId,
+      categoryId: categoryResult.categoryId,
       description: description?.trim() ?? "",
       date: expenseDate,
       paymentMethod: normalizedPaymentMethod,
@@ -143,87 +283,108 @@ export const createExpense = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Create expense error:", error.message);
-
-    if (error.name === "ValidationError" || error.name === "CastError") {
-      return res.status(400).json({
-        success: false,
-        message: "Expense data is invalid",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to create expense",
-    });
+    return handleValidationError(
+      error,
+      res,
+      "Create expense"
+    );
   }
 };
 
-
+// --------------------------------------------------
+// GET ALL EXPENSES
+// --------------------------------------------------
 
 export const getExpenses = async (req, res) => {
   try {
-    const page = Number(req.query.page ?? 1);
-    const limit = Number(req.query.limit ?? 10);
+    const { page: rawPage = "1", limit: rawLimit = "10" } =
+      req.query;
+
+    if (
+      typeof rawPage !== "string" ||
+      typeof rawLimit !== "string" ||
+      !/^\d+$/.test(rawPage) ||
+      !/^\d+$/.test(rawLimit)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Page and limit must be positive integers",
+      });
+    }
+
+    const page = Number(rawPage);
+    const limit = Number(rawLimit);
 
     if (
       !Number.isSafeInteger(page) ||
       !Number.isSafeInteger(limit) ||
       page < 1 ||
       limit < 1 ||
-      limit > 100
+      limit > 100 ||
+      !Number.isSafeInteger((page - 1) * limit)
     ) {
       return res.status(400).json({
         success: false,
-        message: "Page must be positive and limit must be between 1 and 100",
+        message:
+          "Page must be positive and limit must be between 1 and 100",
       });
     }
 
     const { from, to, paymentMethod, search } = req.query;
 
-    // Always scope results to the authenticated user's expenses.
+    // Always scope results to the authenticated user.
     const filter = {
       userId: req.user.id,
       type: "EXPENSE",
     };
 
-    // Filter by date range.
+    // Date range filter.
     if (from !== undefined || to !== undefined) {
       const dateFilter = {};
 
       if (from !== undefined) {
-        if (
-          typeof from !== "string" ||
-          from.trim() === "" ||
-          Number.isNaN(new Date(from).getTime())
-        ) {
+        if (typeof from !== "string") {
           return res.status(400).json({
             success: false,
             message: "Invalid from date",
           });
         }
 
-        dateFilter.$gte = new Date(from);
+        const fromDate = parseDate(from);
+
+        if (!fromDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid from date",
+          });
+        }
+
+        dateFilter.$gte = fromDate;
       }
 
       if (to !== undefined) {
-        if (
-          typeof to !== "string" ||
-          to.trim() === "" ||
-          Number.isNaN(new Date(to).getTime())
-        ) {
+        if (typeof to !== "string") {
           return res.status(400).json({
             success: false,
             message: "Invalid to date",
           });
         }
 
-        dateFilter.$lte = new Date(to);
+        const toDate = parseDate(to);
 
-        // Treat a date-only "to" value as the end of that day.
-        if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
-          dateFilter.$lte.setUTCHours(23, 59, 59, 999);
+        if (!toDate) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid to date",
+          });
         }
+
+        // Include the entire UTC day for date-only values.
+        if (/^\d{4}-\d{2}-\d{2}$/.test(to.trim())) {
+          toDate.setUTCHours(23, 59, 59, 999);
+        }
+
+        dateFilter.$lte = toDate;
       }
 
       if (
@@ -240,18 +401,12 @@ export const getExpenses = async (req, res) => {
       filter.date = dateFilter;
     }
 
-    // Filter by payment method.
+    // Payment method filter.
     if (paymentMethod !== undefined) {
-      if (typeof paymentMethod !== "string") {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid payment method",
-        });
-      }
+      const normalizedMethod =
+        normalizePaymentMethod(paymentMethod);
 
-      const normalizedMethod = paymentMethod.trim().toUpperCase();
-
-      if (!PAYMENT_METHODS.includes(normalizedMethod)) {
+      if (!normalizedMethod) {
         return res.status(400).json({
           success: false,
           message: "Invalid payment method",
@@ -261,7 +416,7 @@ export const getExpenses = async (req, res) => {
       filter.paymentMethod = normalizedMethod;
     }
 
-    // Search descriptions safely using an escaped regular expression.
+    // Safely search expense descriptions.
     if (search !== undefined) {
       if (
         typeof search !== "string" ||
@@ -274,9 +429,7 @@ export const getExpenses = async (req, res) => {
         });
       }
 
-      const escapedSearch = search
-        .trim()
-        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedSearch = escapeRegex(search.trim());
 
       filter.description = {
         $regex: escapedSearch,
@@ -310,7 +463,7 @@ export const getExpenses = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get expenses error:", error.message);
+    console.error("Get expenses error:", error);
 
     return res.status(500).json({
       success: false,
@@ -319,7 +472,9 @@ export const getExpenses = async (req, res) => {
   }
 };
 
-
+// --------------------------------------------------
+// GET EXPENSE BY ID
+// --------------------------------------------------
 
 export const getExpenseById = async (req, res) => {
   try {
@@ -348,10 +503,12 @@ export const getExpenseById = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Expense fetched successfully",
-      data: { expense },
+      data: {
+        expense,
+      },
     });
   } catch (error) {
-    console.error("Get expense by ID error:", error.message);
+    console.error("Get expense by ID error:", error);
 
     return res.status(500).json({
       success: false,
@@ -360,6 +517,9 @@ export const getExpenseById = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// UPDATE EXPENSE
+// --------------------------------------------------
 
 export const updateExpense = async (req, res) => {
   try {
@@ -372,28 +532,14 @@ export const updateExpense = async (req, res) => {
       });
     }
 
-    const allowedFields = [
-      "amountMinor",
-      "currency",
-      "categoryId",
-      "description",
-      "date",
-      "paymentMethod",
-    ];
-
-    const body = req.body;
-
-    if (
-      !body ||
-      typeof body !== "object" ||
-      Array.isArray(body)
-    ) {
+    if (!isValidRequestBody(req.body)) {
       return res.status(400).json({
         success: false,
         message: "Request body must be a JSON object",
       });
     }
 
+    const body = req.body;
     const suppliedFields = Object.keys(body);
 
     if (suppliedFields.length === 0) {
@@ -403,8 +549,9 @@ export const updateExpense = async (req, res) => {
       });
     }
 
-    const unknownFields = suppliedFields.filter(
-      (field) => !allowedFields.includes(field)
+    const unknownFields = hasUnknownFields(
+      body,
+      UPDATE_FIELDS
     );
 
     if (unknownFields.length > 0) {
@@ -419,32 +566,29 @@ export const updateExpense = async (req, res) => {
 
     // Validate amount.
     if (body.amountMinor !== undefined) {
-      if (
-        !Number.isSafeInteger(body.amountMinor) ||
-        body.amountMinor <= 0
-      ) {
+      if (!isValidAmount(body.amountMinor)) {
         return res.status(400).json({
           success: false,
-          message: "Amount must be a positive safe integer in minor currency units",
+          message:
+            "Amount must be a positive safe integer in minor currency units",
         });
       }
 
       updates.amountMinor = body.amountMinor;
     }
 
-    // Validate and normalize currency.
+    // Validate currency.
     if (body.currency !== undefined) {
-      if (
-        typeof body.currency !== "string" ||
-        !/^[A-Z]{3}$/i.test(body.currency.trim())
-      ) {
+      const normalizedCurrency = normalizeCurrency(body.currency);
+
+      if (!normalizedCurrency) {
         return res.status(400).json({
           success: false,
           message: "Currency must be a valid 3-letter currency code",
         });
       }
 
-      updates.currency = body.currency.trim().toUpperCase();
+      updates.currency = normalizedCurrency;
     }
 
     // Validate description.
@@ -455,7 +599,8 @@ export const updateExpense = async (req, res) => {
       ) {
         return res.status(400).json({
           success: false,
-          message: "Description must be text with at most 500 characters",
+          message:
+            "Description must be text with at most 500 characters",
         });
       }
 
@@ -464,19 +609,9 @@ export const updateExpense = async (req, res) => {
 
     // Validate date.
     if (body.date !== undefined) {
-      if (
-        typeof body.date !== "string" ||
-        body.date.trim() === ""
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Expense date must be a valid date string",
-        });
-      }
+      const expenseDate = parseDate(body.date);
 
-      const expenseDate = new Date(body.date);
-
-      if (Number.isNaN(expenseDate.getTime())) {
+      if (!expenseDate) {
         return res.status(400).json({
           success: false,
           message: "Expense date is invalid",
@@ -488,56 +623,35 @@ export const updateExpense = async (req, res) => {
 
     // Validate payment method.
     if (body.paymentMethod !== undefined) {
-      if (typeof body.paymentMethod !== "string") {
-        return res.status(400).json({
-          success: false,
-          message: "Payment method must be text",
-        });
-      }
+      const normalizedMethod = normalizePaymentMethod(
+        body.paymentMethod
+      );
 
-      const paymentMethod = body.paymentMethod.trim().toUpperCase();
-
-      if (!PAYMENT_METHODS.includes(paymentMethod)) {
+      if (!normalizedMethod) {
         return res.status(400).json({
           success: false,
           message: "Invalid payment method",
         });
       }
 
-      updates.paymentMethod = paymentMethod;
+      updates.paymentMethod = normalizedMethod;
     }
 
-    // Categories are optional until the Categories API is available.
+    // Validate category.
     if (body.categoryId !== undefined) {
-      if (body.categoryId === null) {
-        updates.categoryId = null;
-      } else {
-        if (
-          typeof body.categoryId !== "string" ||
-          !mongoose.isValidObjectId(body.categoryId)
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: "Category ID is invalid",
-          });
-        }
+      const categoryResult = await validateCategory(
+        body.categoryId,
+        req.user.id
+      );
 
-        const category = await Category.findOne({
-          _id: body.categoryId,
-          userId: req.user.id,
-          type: "EXPENSE",
-          isArchived: false,
+      if (!categoryResult.valid) {
+        return res.status(400).json({
+          success: false,
+          message: "Expense category not found or unavailable",
         });
-
-        if (!category) {
-          return res.status(400).json({
-            success: false,
-            message: "Expense category not found or unavailable",
-          });
-        }
-
-        updates.categoryId = category._id;
       }
+
+      updates.categoryId = categoryResult.categoryId;
     }
 
     const expense = await Transaction.findOneAndUpdate(
@@ -570,25 +684,17 @@ export const updateExpense = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Update expense error:", error.message);
-
-    if (
-      error.name === "ValidationError" ||
-      error.name === "CastError"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Expense data is invalid",
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Unable to update expense",
-    });
+    return handleValidationError(
+      error,
+      res,
+      "Update expense"
+    );
   }
 };
 
+// --------------------------------------------------
+// DELETE EXPENSE
+// --------------------------------------------------
 
 export const deleteExpense = async (req, res) => {
   try {
@@ -623,7 +729,7 @@ export const deleteExpense = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Delete expense error:", error.message);
+    console.error("Delete expense error:", error);
 
     return res.status(500).json({
       success: false,

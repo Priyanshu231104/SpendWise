@@ -3,18 +3,77 @@ import mongoose from "mongoose";
 import RecurringTransaction from "../models/RecurringTransaction.js";
 import Category from "../models/Category.js";
 
+const VALID_TYPES = ["INCOME", "EXPENSE"];
+const VALID_FREQUENCIES = ["WEEKLY", "MONTHLY", "YEARLY"];
+
+const CREATE_FIELDS = [
+  "type",
+  "amountMinor",
+  "currency",
+  "categoryId",
+  "description",
+  "frequency",
+  "startDate",
+  "nextRunAt",
+  "endDate",
+];
+
+const UPDATE_FIELDS = CREATE_FIELDS;
+
 const isValidObjectId = (id) =>
-  mongoose.isValidObjectId(id);
+  typeof id === "string" && mongoose.isValidObjectId(id);
+
+const isPlainObject = (value) =>
+  value !== null &&
+  typeof value === "object" &&
+  !Array.isArray(value) &&
+  (Object.getPrototypeOf(value) === Object.prototype ||
+    Object.getPrototypeOf(value) === null);
+
+const hasOnlyAllowedFields = (body, allowedFields) =>
+  Object.keys(body).every((field) => allowedFields.includes(field));
 
 const parseDate = (value) => {
   if (typeof value !== "string" || value.trim() === "") {
-    return undefined;
+    return null;
   }
 
-  const date = new Date(value);
+  const normalizedValue = value.trim();
+
+  // Accept ISO date-only values or ISO datetime values.
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(normalizedValue);
+
+  const isDateTime =
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      normalizedValue
+    );
+
+  if (!isDateOnly && !isDateTime) {
+    return null;
+  }
+
+  // Strictly validate calendar dates instead of accepting rollover dates.
+  const datePart = normalizedValue.slice(0, 10);
+  const [year, month, day] = datePart.split("-").map(Number);
+
+  const calendarDate = new Date(Date.UTC(year, month - 1, day));
+
+  if (
+    calendarDate.getUTCFullYear() !== year ||
+    calendarDate.getUTCMonth() !== month - 1 ||
+    calendarDate.getUTCDate() !== day
+  ) {
+    return null;
+  }
+
+  if (isDateOnly) {
+    return calendarDate;
+  }
+
+  const date = new Date(normalizedValue);
 
   if (Number.isNaN(date.getTime())) {
-    return undefined;
+    return null;
   }
 
   return date;
@@ -34,7 +93,9 @@ const validateCategory = async (categoryId, userId, type) => {
     userId,
     type,
     isArchived: false,
-  }).lean();
+  })
+    .select("_id")
+    .lean();
 
   return Boolean(category);
 };
@@ -44,9 +105,92 @@ const serializeRecurringTransaction = (transaction) => ({
   categoryId: transaction.categoryId ?? null,
 });
 
+const validateScheduleDates = ({
+  startDate,
+  nextRunAt,
+  endDate,
+}) => {
+  if (!(startDate instanceof Date) || Number.isNaN(startDate.getTime())) {
+    return "A valid startDate is required.";
+  }
 
+  if (!(nextRunAt instanceof Date) || Number.isNaN(nextRunAt.getTime())) {
+    return "A valid nextRunAt is required.";
+  }
+
+  if (nextRunAt < startDate) {
+    return "Next run date cannot be before the start date.";
+  }
+
+  if (endDate !== null && endDate !== undefined) {
+    if (!(endDate instanceof Date) || Number.isNaN(endDate.getTime())) {
+      return "End date must be a valid date or null.";
+    }
+
+    if (endDate < startDate) {
+      return "End date cannot be before the start date.";
+    }
+
+    if (nextRunAt > endDate) {
+      return "Next run date cannot be after the end date.";
+    }
+  }
+
+  return null;
+};
+
+const isValidAmount = (amountMinor) =>
+  Number.isSafeInteger(amountMinor) && amountMinor > 0;
+
+const isValidCurrency = (currency) =>
+  typeof currency === "string" &&
+  /^[A-Z]{3}$/.test(currency.trim().toUpperCase());
+
+const isValidDescription = (description) =>
+  typeof description === "string" &&
+  description.trim().length <= 500;
+
+const handleValidationError = (error, res, fallbackMessage) => {
+  if (
+    error?.name === "ValidationError" ||
+    error?.name === "CastError"
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid recurring transaction data.",
+    });
+  }
+
+  console.error(fallbackMessage, error);
+
+  return res.status(500).json({
+    success: false,
+    message: fallbackMessage,
+  });
+};
+
+// CREATE RECURRING TRANSACTION
 export const createRecurringTransaction = async (req, res) => {
   try {
+    if (!isPlainObject(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a valid JSON object.",
+      });
+    }
+
+    const invalidFields = Object.keys(req.body).filter(
+      (field) => !CREATE_FIELDS.includes(field)
+    );
+
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more fields are not allowed.",
+        fields: invalidFields,
+      });
+    }
+
     const {
       type,
       amountMinor,
@@ -59,39 +203,51 @@ export const createRecurringTransaction = async (req, res) => {
       endDate = null,
     } = req.body;
 
-    if (!["INCOME", "EXPENSE"].includes(type)) {
+    if (!VALID_TYPES.includes(type)) {
       return res.status(400).json({
         success: false,
         message: "Type must be INCOME or EXPENSE.",
       });
     }
 
-    if (
-      !Number.isSafeInteger(amountMinor) ||
-      amountMinor < 1
-    ) {
+    if (!isValidAmount(amountMinor)) {
       return res.status(400).json({
         success: false,
-        message: "Amount must be a positive safe integer in minor currency units.",
+        message:
+          "Amount must be a positive safe integer in minor currency units.",
       });
     }
 
-    if (
-      typeof currency !== "string" ||
-      !/^[A-Z]{3}$/.test(currency.trim().toUpperCase())
-    ) {
+    if (!isValidCurrency(currency)) {
       return res.status(400).json({
         success: false,
         message: "Currency must be a three-letter currency code.",
       });
     }
 
-    if (
-      !["WEEKLY", "MONTHLY", "YEARLY"].includes(frequency)
-    ) {
+    if (!VALID_FREQUENCIES.includes(frequency)) {
       return res.status(400).json({
         success: false,
         message: "Frequency must be WEEKLY, MONTHLY, or YEARLY.",
+      });
+    }
+
+    if (!isValidDescription(description)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Description must be a string of at most 500 characters.",
+      });
+    }
+
+    if (
+      categoryId !== null &&
+      categoryId !== undefined &&
+      !isValidObjectId(categoryId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid category ID.",
       });
     }
 
@@ -114,40 +270,16 @@ export const createRecurringTransaction = async (req, res) => {
       });
     }
 
-    if (parsedNextRunAt < parsedStartDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Next run date cannot be before the start date.",
-      });
-    }
+    const scheduleError = validateScheduleDates({
+      startDate: parsedStartDate,
+      nextRunAt: parsedNextRunAt,
+      endDate: parsedEndDate,
+    });
 
-    if (
-      parsedEndDate &&
-      parsedEndDate < parsedStartDate
-    ) {
+    if (scheduleError) {
       return res.status(400).json({
         success: false,
-        message: "End date cannot be before the start date.",
-      });
-    }
-
-    if (
-      parsedEndDate &&
-      parsedNextRunAt > parsedEndDate
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Next run date cannot be after the end date.",
-      });
-    }
-
-    if (
-      typeof description !== "string" ||
-      description.trim().length > 500
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Description must be a string of at most 500 characters.",
+        message: scheduleError,
       });
     }
 
@@ -160,24 +292,24 @@ export const createRecurringTransaction = async (req, res) => {
     if (!validCategory) {
       return res.status(400).json({
         success: false,
-        message: "Category is invalid, archived, or does not match the transaction type.",
+        message:
+          "Category is invalid, archived, or does not match the transaction type.",
       });
     }
 
-    const recurringTransaction =
-      await RecurringTransaction.create({
-        userId: req.user.id,
-        type,
-        amountMinor,
-        currency: currency.trim().toUpperCase(),
-        categoryId,
-        description: description.trim(),
-        frequency,
-        startDate: parsedStartDate,
-        nextRunAt: parsedNextRunAt,
-        endDate: parsedEndDate,
-        isActive: true,
-      });
+    const recurringTransaction = await RecurringTransaction.create({
+      userId: req.user.id,
+      type,
+      amountMinor,
+      currency: currency.trim().toUpperCase(),
+      categoryId: categoryId ?? null,
+      description: description.trim(),
+      frequency,
+      startDate: parsedStartDate,
+      nextRunAt: parsedNextRunAt,
+      endDate: parsedEndDate,
+      isActive: true,
+    });
 
     return res.status(201).json({
       success: true,
@@ -187,34 +319,34 @@ export const createRecurringTransaction = async (req, res) => {
       ),
     });
   } catch (error) {
-    if (
-      error.name === "ValidationError" ||
-      error.name === "CastError"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid recurring transaction data.",
-      });
-    }
-
-    console.error("Create recurring transaction error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create recurring transaction schedule.",
-    });
+    return handleValidationError(
+      error,
+      res,
+      "Create recurring transaction error:"
+    );
   }
 };
 
-
+// GET ALL RECURRING TRANSACTIONS
 export const getRecurringTransactions = async (req, res) => {
   try {
+    const allowedQueryFields = ["type", "frequency", "isActive"];
+
+    const invalidFields = Object.keys(req.query).filter(
+      (field) => !allowedQueryFields.includes(field)
+    );
+
+    if (invalidFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more query filters are not supported.",
+        fields: invalidFields,
+      });
+    }
+
     const { type, frequency, isActive } = req.query;
 
-    if (
-      type !== undefined &&
-      !["INCOME", "EXPENSE"].includes(type)
-    ) {
+    if (type !== undefined && !VALID_TYPES.includes(type)) {
       return res.status(400).json({
         success: false,
         message: "Invalid type filter.",
@@ -223,7 +355,7 @@ export const getRecurringTransactions = async (req, res) => {
 
     if (
       frequency !== undefined &&
-      !["WEEKLY", "MONTHLY", "YEARLY"].includes(frequency)
+      !VALID_FREQUENCIES.includes(frequency)
     ) {
       return res.status(400).json({
         success: false,
@@ -271,7 +403,7 @@ export const getRecurringTransactions = async (req, res) => {
   }
 };
 
-
+// GET RECURRING TRANSACTION BY ID
 export const getRecurringTransactionById = async (req, res) => {
   try {
     const { id } = req.params;
@@ -309,7 +441,7 @@ export const getRecurringTransactionById = async (req, res) => {
   }
 };
 
-
+// UPDATE RECURRING TRANSACTION
 export const updateRecurringTransaction = async (req, res) => {
   try {
     const { id } = req.params;
@@ -321,17 +453,12 @@ export const updateRecurringTransaction = async (req, res) => {
       });
     }
 
-    const allowedFields = [
-      "type",
-      "amountMinor",
-      "currency",
-      "categoryId",
-      "description",
-      "frequency",
-      "startDate",
-      "nextRunAt",
-      "endDate",
-    ];
+    if (!isPlainObject(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a valid JSON object.",
+      });
+    }
 
     const suppliedFields = Object.keys(req.body);
 
@@ -343,7 +470,7 @@ export const updateRecurringTransaction = async (req, res) => {
     }
 
     const invalidFields = suppliedFields.filter(
-      (field) => !allowedFields.includes(field)
+      (field) => !UPDATE_FIELDS.includes(field)
     );
 
     if (invalidFields.length > 0) {
@@ -368,32 +495,27 @@ export const updateRecurringTransaction = async (req, res) => {
 
     const updates = { ...req.body };
 
-    if (updates.type !== undefined) {
-      if (!["INCOME", "EXPENSE"].includes(updates.type)) {
-        return res.status(400).json({
-          success: false,
-          message: "Type must be INCOME or EXPENSE.",
-        });
-      }
+    const nextType = updates.type ?? transaction.type;
+
+    if (!VALID_TYPES.includes(nextType)) {
+      return res.status(400).json({
+        success: false,
+        message: "Type must be INCOME or EXPENSE.",
+      });
     }
 
-    if (updates.amountMinor !== undefined) {
-      if (
-        !Number.isSafeInteger(updates.amountMinor) ||
-        updates.amountMinor < 1
-      ) {
-        return res.status(400).json({
-          success: false,
-          message: "Amount must be a positive safe integer.",
-        });
-      }
+    if (
+      updates.amountMinor !== undefined &&
+      !isValidAmount(updates.amountMinor)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be a positive safe integer.",
+      });
     }
 
     if (updates.currency !== undefined) {
-      if (
-        typeof updates.currency !== "string" ||
-        !/^[A-Z]{3}$/.test(updates.currency.trim().toUpperCase())
-      ) {
+      if (!isValidCurrency(updates.currency)) {
         return res.status(400).json({
           success: false,
           message: "Currency must be a three-letter currency code.",
@@ -404,7 +526,7 @@ export const updateRecurringTransaction = async (req, res) => {
     }
 
     if (updates.frequency !== undefined) {
-      if (!["WEEKLY", "MONTHLY", "YEARLY"].includes(updates.frequency)) {
+      if (!VALID_FREQUENCIES.includes(updates.frequency)) {
         return res.status(400).json({
           success: false,
           message: "Invalid frequency.",
@@ -413,17 +535,27 @@ export const updateRecurringTransaction = async (req, res) => {
     }
 
     if (updates.description !== undefined) {
-      if (
-        typeof updates.description !== "string" ||
-        updates.description.trim().length > 500
-      ) {
+      if (!isValidDescription(updates.description)) {
         return res.status(400).json({
           success: false,
-          message: "Description must be a string of at most 500 characters.",
+          message:
+            "Description must be a string of at most 500 characters.",
         });
       }
 
       updates.description = updates.description.trim();
+    }
+
+    if (updates.categoryId !== undefined) {
+      if (
+        updates.categoryId !== null &&
+        !isValidObjectId(updates.categoryId)
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid category ID.",
+        });
+      }
     }
 
     for (const field of ["startDate", "nextRunAt", "endDate"]) {
@@ -433,63 +565,74 @@ export const updateRecurringTransaction = async (req, res) => {
         continue;
       }
 
-      const parsed = parseDate(updates[field]);
+      const parsedDate = parseDate(updates[field]);
 
-      if (!parsed) {
+      if (!parsedDate) {
         return res.status(400).json({
           success: false,
-          message: `${field} must be a valid date or null.`,
+          message: `${field} must be a valid ISO date or datetime.`,
         });
       }
 
-      updates[field] = parsed;
+      updates[field] = parsedDate;
     }
 
-    const nextType = updates.type ?? transaction.type;
     const nextCategoryId =
       updates.categoryId !== undefined
         ? updates.categoryId
         : transaction.categoryId;
 
+    // Validate the category against the resulting transaction type.
     if (
       nextCategoryId !== null &&
-      !(await validateCategory(nextCategoryId, req.user.id, nextType))
+      nextCategoryId !== undefined
     ) {
-      return res.status(400).json({
-        success: false,
-        message: "Category is invalid, archived, or does not match the transaction type.",
-      });
+      const validCategory = await validateCategory(
+        nextCategoryId,
+        req.user.id,
+        nextType
+      );
+
+      if (!validCategory) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "Category is invalid, archived, or does not match the transaction type.",
+        });
+      }
     }
 
-    const nextStartDate = updates.startDate ?? transaction.startDate;
-    const nextRunAt = updates.nextRunAt ?? transaction.nextRunAt;
+    const nextStartDate =
+      updates.startDate !== undefined
+        ? updates.startDate
+        : transaction.startDate;
+
+    const nextRunAt =
+      updates.nextRunAt !== undefined
+        ? updates.nextRunAt
+        : transaction.nextRunAt;
+
     const nextEndDate =
       updates.endDate !== undefined
         ? updates.endDate
         : transaction.endDate;
 
-    if (nextRunAt < nextStartDate) {
+    const scheduleError = validateScheduleDates({
+      startDate: nextStartDate,
+      nextRunAt,
+      endDate: nextEndDate,
+    });
+
+    if (scheduleError) {
       return res.status(400).json({
         success: false,
-        message: "Next run date cannot be before the start date.",
+        message: scheduleError,
       });
     }
 
-    if (nextEndDate && nextEndDate < nextStartDate) {
-      return res.status(400).json({
-        success: false,
-        message: "End date cannot be before the start date.",
-      });
-    }
-
-    if (nextEndDate && nextRunAt > nextEndDate) {
-      return res.status(400).json({
-        success: false,
-        message: "Next run date cannot be after the end date.",
-      });
-    }
-
+    // Apply only validated fields.
     transaction.set(updates);
+
     await transaction.save();
 
     return res.status(200).json({
@@ -498,30 +641,18 @@ export const updateRecurringTransaction = async (req, res) => {
       data: serializeRecurringTransaction(transaction.toObject()),
     });
   } catch (error) {
-    if (
-      error.name === "ValidationError" ||
-      error.name === "CastError"
-    ) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid recurring transaction data.",
-      });
-    }
-
-    console.error("Update recurring transaction error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update recurring transaction.",
-    });
+    return handleValidationError(
+      error,
+      res,
+      "Update recurring transaction error:"
+    );
   }
 };
 
-
+// PAUSE OR RESUME RECURRING TRANSACTION
 export const setRecurringTransactionStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { isActive } = req.body;
 
     if (!isValidObjectId(id)) {
       return res.status(400).json({
@@ -529,6 +660,27 @@ export const setRecurringTransactionStatus = async (req, res) => {
         message: "Invalid recurring transaction ID.",
       });
     }
+
+    if (!isPlainObject(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a valid JSON object.",
+      });
+    }
+
+    const suppliedFields = Object.keys(req.body);
+
+    if (
+      suppliedFields.length !== 1 ||
+      suppliedFields[0] !== "isActive"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Only the isActive field is allowed.",
+      });
+    }
+
+    const { isActive } = req.body;
 
     if (typeof isActive !== "boolean") {
       return res.status(400).json({
@@ -550,6 +702,7 @@ export const setRecurringTransactionStatus = async (req, res) => {
     }
 
     transaction.isActive = isActive;
+
     await transaction.save();
 
     return res.status(200).json({
@@ -560,16 +713,15 @@ export const setRecurringTransactionStatus = async (req, res) => {
       data: serializeRecurringTransaction(transaction.toObject()),
     });
   } catch (error) {
-    console.error("Set recurring transaction status error:", error);
-
-    return res.status(500).json({
-      success: false,
-      message: "Failed to update recurring transaction status.",
-    });
+    return handleValidationError(
+      error,
+      res,
+      "Set recurring transaction status error:"
+    );
   }
 };
 
-
+// DELETE RECURRING TRANSACTION
 export const deleteRecurringTransaction = async (req, res) => {
   try {
     const { id } = req.params;

@@ -1,6 +1,10 @@
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api/v1";
+const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
+
+const API_BASE_URL = (
+  configuredApiBaseUrl ||
+  (import.meta.env.DEV ? "http://localhost:5000/api/v1" : "")
+).replace(/\/+$/, "");
 
 let getAccessToken = () => null;
 let refreshAccessToken = async () => null;
@@ -35,7 +39,7 @@ async function parseResponse(response) {
 
   if (!response.ok || result.success === false) {
     const error = new Error(
-      result.message || `Request failed with status ${response.status}.`,
+      result.message || `Request failed with status ${response.status}.`
     );
 
     error.status = response.status;
@@ -45,9 +49,13 @@ async function parseResponse(response) {
   return result;
 }
 
-
-
 export async function apiRequest(path, options = {}) {
+  if (!API_BASE_URL) {
+    throw new Error(
+      "API URL is not configured. Set VITE_API_BASE_URL in the frontend environment."
+    );
+  }
+
   const isAuthRequest = path.startsWith("/auth/");
   const token = getAccessToken();
 
@@ -57,7 +65,7 @@ export async function apiRequest(path, options = {}) {
     response = await sendRequest(path, options, token);
   } catch {
     throw new Error(
-      "Unable to connect to SpendWise. Check that the backend server is running.",
+      "Unable to connect to SpendWise. Check that the backend server is running."
     );
   }
 
@@ -67,8 +75,9 @@ export async function apiRequest(path, options = {}) {
 
     if (!newToken) {
       const error = new Error(
-        "Your session has expired. Please log in again.",
+        "Your session has expired. Please log in again."
       );
+
       error.status = 401;
       throw error;
     }
@@ -77,7 +86,7 @@ export async function apiRequest(path, options = {}) {
       response = await sendRequest(path, options, newToken);
     } catch {
       throw new Error(
-        "Unable to connect to SpendWise. Check that the backend server is running.",
+        "Unable to connect to SpendWise. Check that the backend server is running."
       );
     }
   }

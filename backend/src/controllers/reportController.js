@@ -6,16 +6,27 @@ import Budget from "../models/Budget.js";
 
 const DAY_IN_MS = 24 * 60 * 60 * 1000;
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const ISO_DATETIME_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * Parses a date-only value or ISO datetime.
+ *
+ * Date-only values are interpreted as UTC dates.
+ * Datetimes must include an explicit timezone.
+ */
 const parseDate = (value) => {
   if (typeof value !== "string" || value.trim() === "") {
     return null;
   }
 
   const input = value.trim();
-  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
 
-  if (dateOnlyPattern.test(input)) {
+  if (DATE_ONLY_PATTERN.test(input)) {
     const [year, month, day] = input.split("-").map(Number);
+
     const date = new Date(Date.UTC(year, month - 1, day));
 
     if (
@@ -29,12 +40,34 @@ const parseDate = (value) => {
     return date;
   }
 
+  if (!ISO_DATETIME_PATTERN.test(input)) {
+    return null;
+  }
+
   const date = new Date(input);
 
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+/**
+ * Validates the report date range.
+ *
+ * Both from and to are required.
+ * Date-only "to" values include the entire specified day.
+ */
 const parseDateRange = (query) => {
+  const allowedParameters = new Set(["from", "to"]);
+
+  const unknownParameters = Object.keys(query).filter(
+    (key) => !allowedParameters.has(key)
+  );
+
+  if (unknownParameters.length > 0) {
+    return {
+      error: `Unsupported query parameter: ${unknownParameters[0]}.`,
+    };
+  }
+
   const { from, to } = query;
 
   if (from === undefined || to === undefined) {
@@ -47,7 +80,9 @@ const parseDateRange = (query) => {
   const end = parseDate(to);
 
   if (!start || !end) {
-    return { error: "Invalid from or to date." };
+    return {
+      error: "Invalid from or to date.",
+    };
   }
 
   if (start > end) {
@@ -58,25 +93,76 @@ const parseDateRange = (query) => {
 
   const isDateOnly =
     typeof to === "string" &&
-    /^\d{4}-\d{2}-\d{2}$/.test(to.trim());
+    DATE_ONLY_PATTERN.test(to.trim());
 
   const endExclusive = isDateOnly
     ? new Date(end.getTime() + DAY_IN_MS)
     : new Date(end.getTime() + 1);
 
-  return { start, end, endExclusive };
+  if (Number.isNaN(endExclusive.getTime())) {
+    return {
+      error: "Invalid to date.",
+    };
+  }
+
+  return {
+    start,
+    end,
+    endExclusive,
+  };
 };
 
-const getUserObjectId = (userId) => {
-  if (!mongoose.Types.ObjectId.isValid(userId)) {
-    throw new Error("Invalid authenticated user ID.");
+/**
+ * Validates and converts the authenticated user's ID.
+ */
+const getUserObjectId = (req) => {
+  const userId = req.user?.id;
+
+  if (
+    typeof userId !== "string" ||
+    !mongoose.isValidObjectId(userId)
+  ) {
+    return null;
   }
 
   return new mongoose.Types.ObjectId(userId);
 };
 
+/**
+ * Calculates a percentage safely.
+ */
+const calculatePercentage = (amount, total) => {
+  if (
+    !Number.isFinite(amount) ||
+    !Number.isFinite(total) ||
+    total <= 0
+  ) {
+    return 0;
+  }
+
+  const percentage = (amount / total) * 100;
+
+  return Number.isFinite(percentage)
+    ? Number(percentage.toFixed(2))
+    : 0;
+};
+
+/**
+ * GET FINANCIAL REPORT SUMMARY
+ *
+ * Returns income, expenses, and net balance grouped by currency.
+ */
 export const getFinancialReportSummary = async (req, res) => {
   try {
+    const userId = getUserObjectId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Please log in again.",
+      });
+    }
+
     const range = parseDateRange(req.query);
 
     if (range.error) {
@@ -87,13 +173,15 @@ export const getFinancialReportSummary = async (req, res) => {
     }
 
     const { start, end, endExclusive } = range;
-    const userId = getUserObjectId(req.user.id);
 
     const summary = await Transaction.aggregate([
       {
         $match: {
           userId,
-          date: { $gte: start, $lt: endExclusive },
+          date: {
+            $gte: start,
+            $lt: endExclusive,
+          },
         },
       },
       {
@@ -102,8 +190,12 @@ export const getFinancialReportSummary = async (req, res) => {
             currency: "$currency",
             type: "$type",
           },
-          totalMinor: { $sum: "$amountMinor" },
-          transactionCount: { $sum: 1 },
+          totalMinor: {
+            $sum: "$amountMinor",
+          },
+          transactionCount: {
+            $sum: 1,
+          },
         },
       },
       {
@@ -125,7 +217,11 @@ export const getFinancialReportSummary = async (req, res) => {
           totals: 1,
         },
       },
-      { $sort: { currency: 1 } },
+      {
+        $sort: {
+          currency: 1,
+        },
+      },
     ]);
 
     const data = summary.map((item) => {
@@ -138,17 +234,22 @@ export const getFinancialReportSummary = async (req, res) => {
       );
 
       const totalIncomeMinor = income?.amountMinor ?? 0;
+
       const totalExpensesMinor = expense?.amountMinor ?? 0;
+
+      const incomeCount = income?.count ?? 0;
+
+      const expenseCount = expense?.count ?? 0;
 
       return {
         currency: item.currency,
         totalIncomeMinor,
         totalExpensesMinor,
-        netBalanceMinor: totalIncomeMinor - totalExpensesMinor,
-        incomeCount: income?.count ?? 0,
-        expenseCount: expense?.count ?? 0,
-        transactionCount:
-          (income?.count ?? 0) + (expense?.count ?? 0),
+        netBalanceMinor:
+          totalIncomeMinor - totalExpensesMinor,
+        incomeCount,
+        expenseCount,
+        transactionCount: incomeCount + expenseCount,
       };
     });
 
@@ -170,8 +271,22 @@ export const getFinancialReportSummary = async (req, res) => {
   }
 };
 
+/**
+ * GET CATEGORY BREAKDOWN REPORT
+ *
+ * Returns expense totals grouped by currency and category.
+ */
 export const getCategoryBreakdownReport = async (req, res) => {
   try {
+    const userId = getUserObjectId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Please log in again.",
+      });
+    }
+
     const range = parseDateRange(req.query);
 
     if (range.error) {
@@ -182,14 +297,16 @@ export const getCategoryBreakdownReport = async (req, res) => {
     }
 
     const { start, end, endExclusive } = range;
-    const userId = getUserObjectId(req.user.id);
 
     const breakdown = await Transaction.aggregate([
       {
         $match: {
           userId,
           type: "EXPENSE",
-          date: { $gte: start, $lt: endExclusive },
+          date: {
+            $gte: start,
+            $lt: endExclusive,
+          },
         },
       },
       {
@@ -198,8 +315,12 @@ export const getCategoryBreakdownReport = async (req, res) => {
             currency: "$currency",
             categoryId: "$categoryId",
           },
-          totalSpentMinor: { $sum: "$amountMinor" },
-          transactionCount: { $sum: 1 },
+          totalSpentMinor: {
+            $sum: "$amountMinor",
+          },
+          transactionCount: {
+            $sum: 1,
+          },
         },
       },
       {
@@ -216,14 +337,17 @@ export const getCategoryBreakdownReport = async (req, res) => {
           .map((item) => item._id.categoryId?.toString())
           .filter(Boolean)
       ),
-    ];
+    ].map((id) => new mongoose.Types.ObjectId(id));
 
-    const categories = await Category.find({
-      _id: { $in: categoryIds },
-      userId,
-    })
-      .select("_id name color icon")
-      .lean();
+    const categories =
+      categoryIds.length > 0
+        ? await Category.find({
+            _id: { $in: categoryIds },
+            userId,
+          })
+            .select("_id name color icon")
+            .lean()
+        : [];
 
     const categoryMap = new Map(
       categories.map((category) => [
@@ -233,7 +357,9 @@ export const getCategoryBreakdownReport = async (req, res) => {
     );
 
     const data = breakdown.map((item) => {
-      const categoryId = item._id.categoryId?.toString() ?? null;
+      const categoryId =
+        item._id.categoryId?.toString() ?? null;
+
       const category = categoryId
         ? categoryMap.get(categoryId)
         : null;
@@ -268,8 +394,22 @@ export const getCategoryBreakdownReport = async (req, res) => {
   }
 };
 
+/**
+ * GET BUDGET PERFORMANCE REPORT
+ *
+ * Returns budget spending performance for the selected date range.
+ */
 export const getBudgetPerformanceReport = async (req, res) => {
   try {
+    const userId = getUserObjectId(req);
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized. Please log in again.",
+      });
+    }
+
     const range = parseDateRange(req.query);
 
     if (range.error) {
@@ -280,12 +420,15 @@ export const getBudgetPerformanceReport = async (req, res) => {
     }
 
     const { start, end, endExclusive } = range;
-    const userId = getUserObjectId(req.user.id);
 
     const budgets = await Budget.find({
       userId,
-      periodStart: { $lt: endExclusive },
-      periodEnd: { $gt: start },
+      periodStart: {
+        $lt: endExclusive,
+      },
+      periodEnd: {
+        $gt: start,
+      },
     })
       .sort({ periodStart: -1 })
       .lean();
@@ -293,7 +436,9 @@ export const getBudgetPerformanceReport = async (req, res) => {
     const data = await Promise.all(
       budgets.map(async (budget) => {
         const rangeStart =
-          budget.periodStart > start ? budget.periodStart : start;
+          budget.periodStart > start
+            ? budget.periodStart
+            : start;
 
         const rangeEndExclusive =
           budget.periodEnd < endExclusive
@@ -315,27 +460,31 @@ export const getBudgetPerformanceReport = async (req, res) => {
         }
 
         const [result] = await Transaction.aggregate([
-          { $match: match },
+          {
+            $match: match,
+          },
           {
             $group: {
               _id: null,
-              spentMinor: { $sum: "$amountMinor" },
-              transactionCount: { $sum: 1 },
+              spentMinor: {
+                $sum: "$amountMinor",
+              },
+              transactionCount: {
+                $sum: 1,
+              },
             },
           },
         ]);
 
         const spentMinor = result?.spentMinor ?? 0;
-        const remainingMinor = budget.amountMinor - spentMinor;
 
-        const percentageUsed =
-          budget.amountMinor > 0
-            ? Number(
-                ((spentMinor / budget.amountMinor) * 100).toFixed(2)
-              )
-            : spentMinor > 0
-              ? 100
-              : 0;
+        const remainingMinor =
+          budget.amountMinor - spentMinor;
+
+        const percentageUsed = calculatePercentage(
+          spentMinor,
+          budget.amountMinor
+        );
 
         return {
           budgetId: budget._id,

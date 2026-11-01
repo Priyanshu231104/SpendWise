@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
-    "test": "echo \"Tests will be configured later\""
+    "test": "echo \"No automated tests configured yet\""
   },
   "keywords": [
     "finance",
@@ -17,6 +17,9 @@
   ],
   "author": "Priyanshu Banerjee",
   "license": "MIT",
+  "engines": {
+    "node": "24.x"
+  },
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "cors": "^2.8.6",

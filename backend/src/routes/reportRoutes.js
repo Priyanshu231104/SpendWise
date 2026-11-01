@@ -10,23 +10,12 @@ import {
 const router = express.Router();
 
 // Financial summary report
-router.get(
-  "/summary",
-  authenticate,
-  getFinancialReportSummary
-);
+router.get("/summary", authenticate, getFinancialReportSummary);
 
 // Expense category breakdown report
-router.get(
-  "/category-breakdown",
-  authenticate,
-  getCategoryBreakdownReport
-);
+router.get("/category-breakdown", authenticate, getCategoryBreakdownReport);
 
-router.get(
-  "/budget-performance",
-  authenticate,
-  getBudgetPerformanceReport
-);
+// Budget performance report
+router.get("/budget-performance", authenticate, getBudgetPerformanceReport);
 
 export default router;

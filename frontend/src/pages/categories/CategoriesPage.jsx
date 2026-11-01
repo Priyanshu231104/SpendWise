@@ -123,35 +123,7 @@ function Icon({ name, className = "h-5 w-5" }) {
   );
 }
 
-function SummaryCard({ label, value, description, icon, tone }) {
-  const tones = {
-    navy: "bg-slate-100 text-[#0C1A33]",
-    green: "bg-emerald-50 text-emerald-700",
-    rose: "bg-rose-50 text-rose-600",
-    amber: "bg-amber-50 text-amber-700",
-  };
 
-  return (
-    <article className="min-w-0 rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:p-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-bold tracking-tight text-[#0C1A33]">
-            {value}
-          </p>
-        </div>
-        <div
-          className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${
-            tones[tone] || tones.navy
-          }`}
-        >
-          <Icon name={icon} className="h-5 w-5" />
-        </div>
-      </div>
-      <p className="mt-3 text-sm leading-5 text-slate-500">{description}</p>
-    </article>
-  );
-}
 
 function Field({ label, htmlFor, children, hint }) {
   return (
@@ -189,39 +161,60 @@ export default function CategoriesPage() {
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
 
+  const fetchCategories = useCallback(async () => {
+    const params = new URLSearchParams({
+      archived: String(showArchived),
+    });
+
+    if (typeFilter !== "ALL") {
+      params.set("type", typeFilter);
+    }
+
+    const result = await apiRequest(
+      `/categories?${params.toString()}`,
+      { method: "GET" },
+    );
+
+    return Array.isArray(result.data?.categories)
+      ? result.data.categories
+      : [];
+  }, [showArchived, typeFilter]);
+
   const loadCategories = useCallback(async () => {
     setIsLoading(true);
     setError("");
 
     try {
-      const params = new URLSearchParams({
-        archived: String(showArchived),
-      });
-
-      if (typeFilter !== "ALL") {
-        params.set("type", typeFilter);
-      }
-
-      const result = await apiRequest(
-        `/categories?${params.toString()}`,
-        { method: "GET" }
-      );
-
-      setCategories(
-        Array.isArray(result.data?.categories)
-          ? result.data.categories
-          : []
-      );
+      const categoryList = await fetchCategories();
+      setCategories(categoryList);
     } catch (err) {
       setError(err.message || "Unable to load categories.");
     } finally {
       setIsLoading(false);
     }
-  }, [showArchived, typeFilter]);
+  }, [fetchCategories]);
 
   useEffect(() => {
-    loadCategories();
-  }, [loadCategories]);
+    let cancelled = false;
+
+    fetchCategories()
+      .then((categoryList) => {
+        if (cancelled) return;
+        setCategories(categoryList);
+        setError("");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err.message || "Unable to load categories.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchCategories]);
 
   const filteredCategories = useMemo(() => {
     const query = search.trim().toLowerCase();

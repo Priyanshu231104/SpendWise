@@ -1,47 +1,135 @@
+
 import mongoose from "mongoose";
 import Category from "../models/Category.js";
 
 const CATEGORY_TYPES = ["INCOME", "EXPENSE"];
 
+const ALLOWED_CREATE_FIELDS = [
+  "name",
+  "type",
+  "color",
+  "icon",
+];
+
+const ALLOWED_UPDATE_FIELDS = [
+  "name",
+  "color",
+  "icon",
+];
+
+// --------------------------------------------------
+// SHARED VALIDATION HELPERS
+// --------------------------------------------------
+
+const isValidRequestBody = (body) => {
+  return (
+    body !== null &&
+    typeof body === "object" &&
+    !Array.isArray(body)
+  );
+};
+
+const normalizeCategoryName = (name) => {
+  if (typeof name !== "string") {
+    return null;
+  }
+
+  const normalized = name.trim();
+
+  if (normalized.length < 2 || normalized.length > 50) {
+    return null;
+  }
+
+  return normalized;
+};
+
+const normalizeCategoryType = (type) => {
+  if (typeof type !== "string") {
+    return null;
+  }
+
+  const normalized = type.trim().toUpperCase();
+
+  return CATEGORY_TYPES.includes(normalized)
+    ? normalized
+    : null;
+};
+
+const isValidColor = (color) => {
+  return (
+    typeof color === "string" &&
+    /^#[0-9A-Fa-f]{6}$/.test(color)
+  );
+};
+
+const normalizeIcon = (icon) => {
+  if (typeof icon !== "string") {
+    return null;
+  }
+
+  const normalized = icon.trim();
+
+  return normalized.length <= 50
+    ? normalized
+    : null;
+};
+
+const getUnknownFields = (body, allowedFields) => {
+  return Object.keys(body).filter(
+    (field) => !allowedFields.includes(field)
+  );
+};
+
+// --------------------------------------------------
+// CREATE CATEGORY
+// --------------------------------------------------
+
 export const createCategory = async (req, res) => {
   try {
+    if (!isValidRequestBody(req.body)) {
+      return res.status(400).json({
+        success: false,
+        message: "Request body must be a JSON object",
+      });
+    }
+
+    const unknownFields = getUnknownFields(
+      req.body,
+      ALLOWED_CREATE_FIELDS
+    );
+
+    if (unknownFields.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "One or more fields cannot be provided",
+        fields: unknownFields,
+      });
+    }
+
     const { name, type, color, icon } = req.body;
 
-    // Validate category name.
-    if (
-      typeof name !== "string" ||
-      name.trim().length < 2 ||
-      name.trim().length > 50
-    ) {
+    // Validate name.
+    const normalizedName = normalizeCategoryName(name);
+
+    if (!normalizedName) {
       return res.status(400).json({
         success: false,
         message: "Category name must be between 2 and 50 characters",
       });
     }
 
-    // Validate and normalize category type.
-    if (
-      typeof type !== "string" ||
-      !CATEGORY_TYPES.includes(type.trim().toUpperCase())
-    ) {
+    // Validate type.
+    const normalizedType = normalizeCategoryType(type);
+
+    if (!normalizedType) {
       return res.status(400).json({
         success: false,
         message: "Category type must be INCOME or EXPENSE",
       });
     }
 
-    const normalizedName = name.trim();
-    const normalizedType = type.trim().toUpperCase();
-    const nameKey = normalizedName.toLowerCase();
-
     // Validate optional color.
-    if (
-      color !== undefined &&
-      (
-        typeof color !== "string" ||
-        !/^#[0-9A-Fa-f]{6}$/.test(color)
-      )
-    ) {
+    if (color !== undefined && !isValidColor(color)) {
       return res.status(400).json({
         success: false,
         message: "Color must be a valid hex color, such as #22C55E",
@@ -49,20 +137,16 @@ export const createCategory = async (req, res) => {
     }
 
     // Validate optional icon.
-    if (
-      icon !== undefined &&
-      (
-        typeof icon !== "string" ||
-        icon.trim().length > 50
-      )
-    ) {
+    if (icon !== undefined && normalizeIcon(icon) === null) {
       return res.status(400).json({
         success: false,
         message: "Icon must be text with at most 50 characters",
       });
     }
 
-    // Check for duplicate names belonging to this user and type.
+    const nameKey = normalizedName.toLowerCase();
+
+    // Check duplicate category.
     const existingCategory = await Category.findOne({
       userId: req.user.id,
       type: normalizedType,
@@ -82,7 +166,7 @@ export const createCategory = async (req, res) => {
       nameKey,
       type: normalizedType,
       ...(color !== undefined ? { color } : {}),
-      ...(icon !== undefined ? { icon: icon.trim() } : {}),
+      ...(icon !== undefined ? { icon: normalizeIcon(icon) } : {}),
     });
 
     return res.status(201).json({
@@ -91,9 +175,8 @@ export const createCategory = async (req, res) => {
       data: { category },
     });
   } catch (error) {
-    console.error("Create category error:", error.message);
+    console.error("Create category error:", error);
 
-    // Handle duplicate-key conflicts, including concurrent requests.
     if (error.code === 11000) {
       return res.status(409).json({
         success: false,
@@ -118,6 +201,9 @@ export const createCategory = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET ALL CATEGORIES
+// --------------------------------------------------
 
 export const getCategories = async (req, res) => {
   try {
@@ -127,22 +213,21 @@ export const getCategories = async (req, res) => {
       userId: req.user.id,
     };
 
-    // Optional filtering by category type.
+    // Filter by category type.
     if (type !== undefined) {
-      if (
-        typeof type !== "string" ||
-        !CATEGORY_TYPES.includes(type.trim().toUpperCase())
-      ) {
+      const normalizedType = normalizeCategoryType(type);
+
+      if (!normalizedType) {
         return res.status(400).json({
           success: false,
           message: "Type must be INCOME or EXPENSE",
         });
       }
 
-      filter.type = type.trim().toUpperCase();
+      filter.type = normalizedType;
     }
 
-    // By default, return only active categories.
+    // Return active categories by default.
     if (archived === undefined || archived === "false") {
       filter.isArchived = false;
     } else if (archived === "true") {
@@ -167,7 +252,7 @@ export const getCategories = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Get categories error:", error.message);
+    console.error("Get categories error:", error);
 
     return res.status(500).json({
       success: false,
@@ -176,6 +261,9 @@ export const getCategories = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// GET CATEGORY BY ID
+// --------------------------------------------------
 
 export const getCategoryById = async (req, res) => {
   try {
@@ -206,7 +294,7 @@ export const getCategoryById = async (req, res) => {
       data: { category },
     });
   } catch (error) {
-    console.error("Get category by ID error:", error.message);
+    console.error("Get category by ID error:", error);
 
     return res.status(500).json({
       success: false,
@@ -215,6 +303,9 @@ export const getCategoryById = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// UPDATE CATEGORY
+// --------------------------------------------------
 
 export const updateCategory = async (req, res) => {
   try {
@@ -227,20 +318,14 @@ export const updateCategory = async (req, res) => {
       });
     }
 
-    const allowedFields = ["name", "color", "icon"];
-    const body = req.body;
-
-    if (
-      !body ||
-      typeof body !== "object" ||
-      Array.isArray(body)
-    ) {
+    if (!isValidRequestBody(req.body)) {
       return res.status(400).json({
         success: false,
         message: "Request body must be a JSON object",
       });
     }
 
+    const body = req.body;
     const suppliedFields = Object.keys(body);
 
     if (suppliedFields.length === 0) {
@@ -250,8 +335,9 @@ export const updateCategory = async (req, res) => {
       });
     }
 
-    const unknownFields = suppliedFields.filter(
-      (field) => !allowedFields.includes(field)
+    const unknownFields = getUnknownFields(
+      body,
+      ALLOWED_UPDATE_FIELDS
     );
 
     if (unknownFields.length > 0) {
@@ -283,19 +369,17 @@ export const updateCategory = async (req, res) => {
 
     const updates = {};
 
+    // Validate and update name.
     if (body.name !== undefined) {
-      if (
-        typeof body.name !== "string" ||
-        body.name.trim().length < 2 ||
-        body.name.trim().length > 50
-      ) {
+      const normalizedName = normalizeCategoryName(body.name);
+
+      if (!normalizedName) {
         return res.status(400).json({
           success: false,
           message: "Category name must be between 2 and 50 characters",
         });
       }
 
-      const normalizedName = body.name.trim();
       const nameKey = normalizedName.toLowerCase();
 
       const duplicate = await Category.findOne({
@@ -316,11 +400,9 @@ export const updateCategory = async (req, res) => {
       updates.nameKey = nameKey;
     }
 
+    // Validate color.
     if (body.color !== undefined) {
-      if (
-        typeof body.color !== "string" ||
-        !/^#[0-9A-Fa-f]{6}$/.test(body.color)
-      ) {
+      if (!isValidColor(body.color)) {
         return res.status(400).json({
           success: false,
           message: "Color must be a valid hex color, such as #22C55E",
@@ -330,21 +412,22 @@ export const updateCategory = async (req, res) => {
       updates.color = body.color;
     }
 
+    // Validate icon.
     if (body.icon !== undefined) {
-      if (
-        typeof body.icon !== "string" ||
-        body.icon.trim().length > 50
-      ) {
+      const normalizedIcon = normalizeIcon(body.icon);
+
+      if (normalizedIcon === null) {
         return res.status(400).json({
           success: false,
           message: "Icon must be text with at most 50 characters",
         });
       }
 
-      updates.icon = body.icon.trim();
+      updates.icon = normalizedIcon;
     }
 
     Object.assign(category, updates);
+
     await category.save();
 
     return res.status(200).json({
@@ -353,7 +436,7 @@ export const updateCategory = async (req, res) => {
       data: { category },
     });
   } catch (error) {
-    console.error("Update category error:", error.message);
+    console.error("Update category error:", error);
 
     if (error.code === 11000) {
       return res.status(409).json({
@@ -379,12 +462,14 @@ export const updateCategory = async (req, res) => {
   }
 };
 
+// --------------------------------------------------
+// ARCHIVE CATEGORY
+// --------------------------------------------------
 
 export const archiveCategory = async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Validate the category ID
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({
         success: false,
@@ -392,7 +477,7 @@ export const archiveCategory = async (req, res) => {
       });
     }
 
-    // Find only a category owned by the authenticated user
+    // Find only a category owned by the authenticated user.
     const category = await Category.findOne({
       _id: id,
       userId: req.user.id,
@@ -405,7 +490,7 @@ export const archiveCategory = async (req, res) => {
       });
     }
 
-    // Make repeated archive requests safe
+    // Make repeated archive requests safe.
     if (category.isArchived) {
       return res.status(200).json({
         success: true,
@@ -415,6 +500,7 @@ export const archiveCategory = async (req, res) => {
     }
 
     category.isArchived = true;
+
     await category.save();
 
     return res.status(200).json({
@@ -424,6 +510,13 @@ export const archiveCategory = async (req, res) => {
     });
   } catch (error) {
     console.error("Archive category error:", error);
+
+    if (error.name === "ValidationError") {
+      return res.status(400).json({
+        success: false,
+        message: "Category data is invalid",
+      });
+    }
 
     return res.status(500).json({
       success: false,
