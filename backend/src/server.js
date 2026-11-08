@@ -84,6 +84,8 @@ if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
 
 const app = express();
 
+app.set("trust proxy", 1);
+
 // Security headers.
 app.use(helmet());
 
