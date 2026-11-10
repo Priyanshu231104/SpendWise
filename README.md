@@ -532,3 +532,11 @@ GitHub: [@Priyanshu231104](https://github.com/Priyanshu231104)
 <p align="center">
   <strong>SpendWise — Your Money, More Mindfully.</strong>
 </p>
+
+## License
+
+This project is licensed under the MIT License.
+
+See the [LICENSE](LICENSE) file for details.
+
+Copyright (c) 2026 Priyanshu Banerjee.
